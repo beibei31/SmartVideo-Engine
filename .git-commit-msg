@@ -1,7 +1,0 @@
-feat: token cost tracking with Redis interceptor, ASR pipeline fix, and frontend token meter
-
-- Token: TokenUsageService with Redisson INCRBY + 24h TTL, AiTokenQuotaInterceptor returns HTTP 429 when quota exceeded, frontend real-time progress bar
-- ASR: fix Aliyun DashScope JSON parsing (task_status extraction, transcription_url download), MinIO public endpoint via ngrok for public audio URL
-- AI: switch DeepSeek to official API (deepseek-chat), skip duplicate ASR with generateSummaryFromText, /debug/ai-direct bypasses MQ
-- Build: add Lombok annotation processor to maven-compiler-plugin for JDK 21 compatibility
-- Docs: complete README rewrite with 7-step setup guide, ngrok config, env vars, troubleshooting FAQ
