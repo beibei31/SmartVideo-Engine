@@ -1,0 +1,18 @@
+.idea/
+*.iml
+target/
+node_modules/
+dist/
+*.log
+.env
+
+# Docker runtime data
+mysql/data/
+minio/data/
+rocketmq/data/
+rocketmq/logs/
+pet-runs/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:JAVA_HOME)",
+      "Bash(npm --version)",
+      "Bash(mvn --version)",
+      "Bash(npm run *)",
+      "Read(//d/soft/Java/jdk-21/**)",
+      "PowerShell($env:JAVA_HOME = \"D:\\\\soft\\\\Java\\\\jdk-21\"; $env:Path = \"$env:JAVA_HOME\\\\bin;$env:Path\"; java -version 2>&1; mvn --version 2>&1 | Select-Object -First 3)",
+      "PowerShell($env:JAVA_HOME = \"D:\\\\soft\\\\Java\\\\jdk-21\"; $env:Path = \"$env:JAVA_HOME\\\\bin;$env:Path\"; cd d:\\\\github\\\\DOVideo-AI\\\\server; mvn clean test 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:JAVA_HOME = \"D:\\\\soft\\\\Java\\\\jdk-21\"; $env:Path = \"$env:JAVA_HOME\\\\bin;$env:Path\"; cd d:\\\\github\\\\DOVideo-AI\\\\server; mvn package -DskipTests 2>&1 | Select-Object -Last 8)",
+      "Bash(rm -rf \"d:/github/DOVideo-AI/.git\")",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ],
+    "additionalDirectories": [
+      "d:\\github\\DOVideo-AI\\.git"
+    ]
+  }
+}
