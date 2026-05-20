@@ -1,223 +1,325 @@
 <div align="center">
 
-  <h1 align="center">SmartVideo-Engine — 智能视频内容理解平台</h1>
+  <h1>SmartVideo-Engine</h1>
+  <h3>智能视频内容理解平台</h3>
 
-  <p align="center">
-    <strong>全链路异步化 / 长任务稳定性保障 / Token 成本核算与限流 / AI 智能时间轴导览</strong>
+  <p>
+    <strong>全链路异步化 / Token 成本核算与限流 / AI 智能时间轴导览</strong>
   </p>
 
-  <p align="center">
-    <a href="https://github.com/beibei31/SmartVideo-Engine">
-      <img src="https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen" alt="Spring Boot">
-    </a>
-    <a href="https://github.com/beibei31/SmartVideo-Engine">
-      <img src="https://img.shields.io/badge/RocketMQ-4.9-orange" alt="RocketMQ">
-    </a>
-    <a href="https://github.com/beibei31/SmartVideo-Engine">
-      <img src="https://img.shields.io/badge/Redisson-Distributed%20Lock-red" alt="Redisson">
-    </a>
-    <a href="https://github.com/beibei31/SmartVideo-Engine">
-      <img src="https://img.shields.io/badge/Redis-Token%20Quota-blue" alt="Redis Token Quota">
-    </a>
-    <a href="https://github.com/beibei31/SmartVideo-Engine">
-      <img src="https://img.shields.io/badge/DeepSeek-AI%20Analysis-blueviolet" alt="DeepSeek AI">
-    </a>
-    <a href="https://github.com/beibei31/SmartVideo-Engine">
-      <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License">
-    </a>
+  <p>
+    <img src="https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen" alt="Spring Boot">
+    <img src="https://img.shields.io/badge/RocketMQ-4.9-orange" alt="RocketMQ">
+    <img src="https://img.shields.io/badge/Redis-Token%20Quota-blue" alt="Redis">
+    <img src="https://img.shields.io/badge/DeepSeek-AI-blueviolet" alt="DeepSeek">
+    <img src="https://img.shields.io/badge/Vue%203-Vite-06b47a" alt="Vue 3">
+    <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License">
   </p>
 </div>
 
 <br/>
 
-**SmartVideo-Engine** 是一个集成用户鉴权、视频上传、音频提取及 AI 自动总结的全链路视频内容理解平台。
+## 项目简介
 
-针对视频处理场景中常见的 **"长耗时阻塞"**、**"高并发资源冲突"** 以及 **"大文件传输不稳定"** 等痛点，本项目抛弃了传统的同步处理模式，基于 **RocketMQ + Redisson + 分片续传** 重构了系统架构。在此基础上，进一步实现了 **精细化 Token 成本核算与限流** 以及 **AI 智能时间轴导览**，将大模型 API 调用成本与业务层深度绑定，并将 AI 产出的非结构化文本转化为前端可交互的结构化组件。
+SmartVideo-Engine 是一套完整的视频内容理解解决方案，支持用户上传本地视频或粘贴在线链接，自动完成**音频提取 → 语音转文字 → AI 智能总结**全流程，并以**可交互的时间轴**形式呈现结果。
 
-视频平台大多只解决了"存储"和"播放"的问题。SmartVideo-Engine 旨在解决"理解"的问题——通过异步架构处理长耗时任务，利用 AI 提取核心价值，让视频不再是黑盒。
+区别于传统视频平台只解决"存储和播放"，本项目的核心价值在于**"理解"**——让 AI 替你阅读视频内容，并以结构化的方式与你互动。
 
 <br/>
 
-## 核心功能
+## 亮点功能
 
-### 1. 🚀 稳定上传体验
+### 💰 精细化 Token 成本核算与限流
 
-- **分片断点续传**：针对 GB 级大文件（如 4K 课程录像），采用 Redis 维护上传分片状态。实测在 20% 丢包率弱网环境下，上传成功率从 25% 提升至 99%。
-- **秒级响应**：引入 RocketMQ 将耗时的"视频分析"动作剥离出主线程。用户上传完成后仅需 50ms 即可得到反馈，后续处理全异步化，彻底告别页面转圈卡死。
+大模型 API 按 Token 计费，传统 QPS 限流已不适用。本项目将计费模型直接嵌入业务层：
 
-### 2. 🛡️ 高并发防护
+```
+请求进入 → Interceptor 查 Redis 配额 → 超限返回 HTTP 429 → 未超限放行
+                                                              ↓
+DeepSeek API 返回 → 提取 usage.total_tokens → Redis INCRBY 累加 → 设 24h TTL 每日重置
+```
 
-- **分布式锁兜底**：使用 Redisson + WatchDog 机制。当多个用户同时上传同一视频时，系统通过 MD5 内容指纹识别，利用分布式锁防止重复转码与 AI 分析，节省算力与 Token 开销。
-- **削峰填谷**：Controller 层集成 Redis 令牌桶算法，有效遏制恶意请求与突发流量，保护后端服务不被击穿。
+- Redis Key 格式：`user:token:usage:{userId}`
+- 默认日配额：50000 Token（可在 `application.properties` 调整）
+- 超限响应：HTTP 429 + "今日 AI 算力已耗尽"
+- 全局异常处理器统一拦截 `TokenQuotaExceededException`
 
-### 3. 🔄 任务处理流程详解
+### 🎬 AI 智能时间轴导览
 
-- **稳健入口**：文件直传 MinIO，避免应用服务器带宽瓶颈。
-- **异步解耦**：上传成功后，Controller 仅发送一条消息至 RocketMQ 即刻返回，将长耗时任务留给后台。
-- **安全消费**：消费者通过 Redisson 锁住视频 MD5，确保同一视频在同一时刻只有一个线程在处理。
-- **智能重试**：针对第三方 AI API 可能的网络抖动，设计了指数退避重试机制，确保任务最终一致性。
+将 AI 输出的长文本转化为可交互的结构化组件：
 
-### 4. 💰 精细化 Token 成本核算与限流
+```
+视频文字 → System Prompt 约束输出格式 → DeepSeek 返回 JSON 数组 → 前端解析渲染
+                                                                      ↓
+                                            [时间轴列表] ← 点击节点 → 视频跳转播放
+```
 
-- **Token 实时记账**：每次大模型 API 调用（DeepSeek）结束后，从响应体中提取 `usage.total_tokens`，通过 Redis `INCRBY` 原子累加至 `user:token:usage:{userId}` Key，并自动设置 24 小时 TTL 实现每日额度重置。
-- **前置拦截器**：Spring Boot Interceptor 拦截 `/debug/ai`、`/debug/transcribe` 等 AI 相关接口，从请求头/参数/媒体归属中解析用户身份，若当日累计 Token 超过配置阈值（默认 50000），直接抛出 `TokenQuotaExceededException` 并返回 HTTP 429 "今日 AI 算力已耗尽"。
-- **与传统限流的区别**：传统 QPS 限流只管"每秒几次请求"，Token 核算直击大模型时代的计费命脉——将 API 调用成本压到用户维度做颗粒度控制。
-- **配置项**：`ai.token.daily-quota=50000`（可在 `application.properties` 中按需调整）
+- Prompt 强制模型返回 `[{"startTime":120,"topic":"主题","summary":"摘要"}]` 格式
+- 前端自动解析 JSON 渲染时间轴 UI（非 JSON 降级为 Markdown 渲染）
+- 点击任意时间节点直接定位视频对应秒数并播放
 
-### 5. 🎬 AI 智能时间轴导览
+<br/>
 
-- **结构化 Prompt**：System Prompt 强制要求大模型返回严格 JSON 数组（`[{"startTime":120,"topic":"分布式锁原理","summary":"..."}]`），而非自由文本，确保下游可靠解析。
-- **持久化存储**：时间轴 JSON 原文写入 `media_files.ai_summary` 并另存至 `ai_summary_result` 表，前端无需额外接口即可拉取。
-- **前端联动播放器**：侧栏渲染为可点击的时间轴列表（仿 Element Plus Timeline 风格），点击任意节点触发 `videoElement.currentTime = startTime` 并自动播放——将 AI 产出的非结构化文本变成前端可强交互的结构化组件。
+## 系统架构
+
+```mermaid
+graph TB
+    subgraph 客户端
+        A[Vue 3 前端<br/>localhost:5173]
+    end
+
+    subgraph 网关层
+        B[Token 配额拦截器<br/>AiTokenQuotaInterceptor]
+        C[全局限流<br/>Redis RateLimiter]
+    end
+
+    subgraph 业务层
+        D[MediaController<br/>上传 / 列表]
+        E[DebugController<br/>AI 分析 / 转写 / 下载]
+        F[UserController<br/>注册 / 登录]
+    end
+
+    subgraph 消息队列
+        G[RocketMQ<br/>video-analysis-topic]
+    end
+
+    subgraph 异步处理
+        H[VideoAnalysisConsumer<br/>消费消息]
+        I[AiService<br/>asyncAnalyze / asyncTranscribe]
+    end
+
+    subgraph AI 能力
+        J[FFmpeg 提取音频]
+        K[阿里云 ASR<br/>语音转文字]
+        L[DeepSeek API<br/>生成时间轴 JSON]
+    end
+
+    subgraph 计费与持久化
+        M[Redis INCRBY<br/>Token 记账 + 24h TTL]
+        N[MySQL<br/>media_files / ai_summary_result]
+        O[MinIO<br/>视频文件存储]
+    end
+
+    A -->|HTTP 请求| B
+    B -->|配额充足| C
+    B -->|超限| Z[HTTP 429<br/>算力已耗尽]
+    C --> D
+    C --> E
+    C --> F
+    E -->|投递消息| G
+    G --> H
+    H --> I
+    I --> J
+    J --> K
+    K --> L
+    L -->|提取 total_tokens| M
+    I --> N
+    D --> O
+```
 
 <br/>
 
 ## 技术栈
 
-### 后端
-
-SpringBoot 3.5 + RocketMQ 4.9 + Redis 7.x + MySQL 8.0 + MyBatis Plus + MinIO + FFmpeg + DeepSeek (硅基流动 API)
-
-### 部署
-
-Docker / Docker Compose
-
-### 前端
-
-Vue 3 + Vite + Marked
-
-<br/>
-
-## 系统架构流程图
-
-```mermaid
-graph TD
-    A[客户端发起请求] --> B{Redis 令牌桶限流}
-    B -- 超过阈值 --> C[拒绝请求 保障可用性]
-    B -- 获取令牌 --> D[分片并发上传]
-    D --> E(Redis 记录分片状态 断点续传)
-    E --> F[文件上传并合并完成]
-
-    F --> G[封装元数据投递 RocketMQ]
-    G --> H[上传接口立即返回 < 50ms]
-
-    G --> I[消费者异步拉取消息]
-    I --> J{计算文件 MD5 查询去重}
-    J -- 命中记录 --> K[直接关联并返回历史结果]
-    J -- 全新视频 --> L[加 Redisson 分布式锁]
-
-    L --> M(WatchDog 机制防止长耗时锁过期)
-    M --> N[调用 FFmpeg 提取音频]
-    N --> O[请求硅基流动 API 生成字幕与总结]
-    O --> P{读取 usage.total_tokens}
-    P --> Q[Redis INCRBY 累加 Token 至 user:token:usage]
-    Q --> R(设置 24h TTL 实现每日额度重置)
-    R --> S(指数退避重试兜底网络抖动)
-    S --> T[保存结果 释放锁 清理资源]
-
-    U[用户发起 AI 分析/转写] --> V{拦截器检查 Token 配额}
-    V -- 超过日限额 --> W[HTTP 429 今日 AI 算力已耗尽]
-    V -- 配额充足 --> X[投递 RocketMQ 异步处理]
-    X --> I
-
-    Y[用户发起智能问答] --> Z[Redis 获取最近十轮对话]
-    Z --> AA[触发 Function Calling 机制]
-    AA --> AB[数据库检索相关视频信息]
-    AB --> AC[大模型结合上下文生成回复]
-```
+| 层级 | 技术 | 说明 |
+|:---|:---|:---|
+| 后端框架 | Spring Boot 3.5 + Undertow | 高并发 Servlet 容器 |
+| 消息队列 | RocketMQ 4.9 | 异步解耦，削峰填谷 |
+| 数据库 | MySQL 8.0 + MyBatis Plus | 结构化数据持久化 |
+| 缓存 / 锁 | Redis 7.x + Redisson | 分片状态、分布式锁、Token 限额 |
+| 对象存储 | MinIO | 视频文件存储，兼容 S3 |
+| AI 模型 | DeepSeek（硅基流动 API） | 内容总结 + 时间轴生成 |
+| 语音识别 | 阿里云百炼 ASR（paraformer-v2） | 音频转文字 |
+| 音视频处理 | FFmpeg + yt-dlp | 音频提取、在线视频下载 |
+| 前端 | Vue 3 + Vite | 响应式单页应用 |
 
 <br/>
 
-## 开发环境
+## 开发环境要求
 
 | 组件 | 版本 | 备注 |
-| :--- | :--- | :--- |
-| **JDK** | 21 | 支持 Spring Boot 3.5 即可 |
-| **Node** | v20+ | 前端构建依赖 |
-| **MySQL** | 8.0 | Docker 镜像 `mysql:8.0` |
-| **Redis** | 7.x | Docker 镜像 `redis:latest` |
-| **RocketMQ** | 4.9.4 | Docker 镜像 `apache/rocketmq:4.9.4` |
-| **DeepSeek** | 硅基流动 API | 新用户注册送 14 元免费额度 |
-| **FFmpeg** | Latest | 推荐 2025 年后的 Snapshot 版本 |
-| **yt-dlp** | Latest | 建议定期 `update` 保持解析库最新 |
+|:---|:---|:---|
+| JDK | 21 | 必须，Spring Boot 3.5 最低要求 |
+| Node.js | v20+ | 前端构建依赖 |
+| Docker | 20+ | 运行中间件 |
+| MySQL | 8.0 | Docker 提供 |
+| Redis | 7.x | Docker 提供 |
+| RocketMQ | 4.9.4 | Docker 提供 |
+| FFmpeg | 2025+ Snapshot | 本地安装 |
+| yt-dlp | Latest | 本地安装，定期 `yt-dlp -U` 更新 |
 
 <br/>
 
-## 本地部署
+## 本地部署（完整流程）
 
-### 1. 中间件部署 (Docker Compose)
-
-项目所有中间件已封装为 Docker Compose 文件，在项目根目录下一键启动：
+### 第一步：克隆项目
 
 ```bash
-# 包含 MySQL, Redis, MinIO, RocketMQ (Namesrv + Broker), RocketMQ Dashboard
+git clone https://github.com/beibei31/SmartVideo-Engine.git
+cd SmartVideo-Engine
+```
+
+### 第二步：启动中间件
+
+```bash
+# 一键启动 MySQL, Redis, MinIO, RocketMQ
 docker-compose up -d
 ```
 
-启动后确认所有容器状态正常：
+验证所有容器运行正常：
 
 ```bash
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 ```
 
-### 2. 后端配置
+期望输出：
 
-在启动后端前，修改以下配置：
+| 容器名 | 端口 |
+|--------|------|
+| mysql-media | 3307 |
+| redis-media | 6379 |
+| minio | 9000, 9001 |
+| rmqnamesrv | 9876 |
+| rmqbroker | 10911, 10909 |
+| rmqdashboard | 8180 |
 
-**配置数据库密码**（确保与 docker-compose 中的 MySQL 密码一致）：
+> RocketMQ Dashboard 可通过 [http://localhost:8180](http://localhost:8180) 访问，用于监控消息队列状态。
+
+### 第三步：配置后端
+
+编辑 `server/src/main/resources/application.properties`：
 
 ```properties
+# ===== 数据库（保持默认即可，与 docker-compose 一致）=====
+spring.datasource.url=jdbc:mysql://localhost:3307/media_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf-8&allowPublicKeyRetrieval=true
+spring.datasource.username=root
 spring.datasource.password=root
-```
 
-**配置 AI 模型密钥与 Token 配额**（默认使用硅基流动 API）：
+# ===== Redis（保持默认即可）=====
+spring.data.redis.host=localhost
+spring.data.redis.port=6379
 
-```properties
-# 前往 https://cloud.siliconflow.cn/ 申请免费密钥
-ai.deepseek.api-key=sk-你的密钥xxxxxxxxxxxxxxxx
+# ===== MinIO（保持默认即可）=====
+minio.endpoint=http://localhost:9000
+minio.accessKey=minioadmin
+minio.secretKey=minioadmin
+minio.bucketName=media
 
-# 每日每用户 Token 配额（默认 50000，可按需调整）
+# ===== RocketMQ（保持默认即可）=====
+rocketmq.name-server=127.0.0.1:9876
+
+# ===== AI 密钥（必须替换为你自己的）=====
+ai.deepseek.api-key=sk-你的密钥
+ai.aliyun.api-key=sk-你的阿里云密钥
+
+# ===== Token 每日配额（可按需调整）=====
 ai.token.daily-quota=50000
-```
 
-**配置 FFmpeg 和 yt-dlp 路径**：
-
-```properties
-# Windows 环境示例（注意使用斜杠 /）
+# ===== 本地工具路径（按你的实际路径填写）=====
 tool.ffmpeg.dir=D:/ffmpeg/bin
 tool.ytdlp.path=D:/yt-dlp/yt-dlp.exe
-
-# Mac/Linux 环境示例
-# tool.ffmpeg.dir=/usr/local/bin
-# tool.ytdlp.path=/usr/local/bin/yt-dlp
 ```
 
-### 3. 启动项目
+### 第四步：启动后端
 
-**启动后端**：
-
-```bash
+```powershell
 cd server
 
-# 编译并启动（需要 JDK 21）
-mvn clean spring-boot:run
+# 设置 JDK 21
+$env:JAVA_HOME = "D:\soft\Java\jdk-21"
 
-# 看到 "Started ServerApplication in x.xxx seconds" 即启动成功
+# 编译 + 测试
+mvn clean test
+
+# 启动服务
+mvn spring-boot:run
 ```
 
-**启动前端**：
+看到以下输出表示启动成功：
 
-```bash
+```
+Started ServerApplication in x.xxx seconds (process running for x.xxx)
+```
+
+后端运行在 [http://localhost:9090](http://localhost:9090)。
+
+### 第五步：启动前端
+
+```powershell
 cd client
 
-# 安装依赖（仅首次）
+# 首次运行需安装依赖
 npm install
 
-# 启动开发模式
+# 启动开发服务器
 npm run dev
 ```
 
-访问前端界面默认地址 [http://localhost:5173](http://localhost:5173) 即可使用。
+浏览器打开 [http://localhost:5173](http://localhost:5173) 即可使用。
+
+<br/>
+
+## 使用流程
+
+### 1. 注册登录
+
+点击右上角「登录 / 注册」→ 注册新账号 → 登录。
+
+### 2. 上传视频
+
+两种方式任选：
+
+- **本地文件**：点击左侧 "LOCAL FILE" 选择视频文件
+- **在线链接**：在右侧输入框粘贴 B 站 / YouTube 等视频链接
+
+上传完成后在工作台可见卡片，状态从 `PROCESSING` 变为 `READY`。
+
+### 3. 提取文字
+
+点击卡片上的「提取文字」→ 右侧侧栏展示全量语音转写结果。
+
+### 4. AI 智能总结 + 时间轴导览
+
+点击「AI 智能总结」→ 等待后端调用 DeepSeek 分析 → 右侧侧栏出现：
+
+- **视频播放器**（上方）
+- **可点击的时间轴列表**（下方）
+
+点击任意时间节点，视频自动跳转并播放。
+
+### 5. 下载音频
+
+点击「下载音频」→ 浏览器自动下载 MP3 文件。
+
+<br/>
+
+## Token 配额测试
+
+### 查看当前用量
+
+```bash
+# 连接 Redis 容器
+docker exec -it redis-media redis-cli
+
+# 查看某用户的 Token 用量（替换 1 为实际 userId）
+GET user:token:usage:1
+
+# 查看 TTL
+TTL user:token:usage:1
+```
+
+### 模拟配额耗尽
+
+```bash
+# 写入一个超过阈值的用量
+SET user:token:usage:1 50001
+
+# 然后在前端点击「AI 智能总结」
+# 期望：页面弹出 "今日 AI 算力已耗尽"
+
+# 清理测试数据
+DEL user:token:usage:1
+```
 
 <br/>
 
@@ -225,27 +327,46 @@ npm run dev
 
 ```
 SmartVideo-Engine/
-├── client/                          # Vue 3 前端
+├── client/                              # Vue 3 前端
 │   └── src/
-│       └── App.vue                  # 主页面（含时间轴导览 UI）
-├── server/                          # Spring Boot 后端
+│       └── App.vue                      # 主页面（时间轴导览 + Token 超限提示）
+├── server/                              # Spring Boot 后端
 │   └── src/main/java/com/example/server/
-│       ├── config/                  # WebConfig（拦截器注册 + 跨域）
-│       ├── consumer/                # RocketMQ 消费者
-│       ├── controller/              # DebugController, MediaController, UserController
-│       ├── entity/                  # MediaFile, User, AiSummaryResult
-│       ├── exception/               # TokenQuotaExceededException, GlobalExceptionHandler
-│       ├── interceptor/             # AiTokenQuotaInterceptor（Token 配额前置检查）
-│       ├── mapper/                  # MyBatis Plus Mapper
-│       ├── service/                 # AiService, TokenUsageService, TokenUsageContext
-│       ├── strategy/                # AiAnalysisStrategy → AliyunDeepSeekStrategy
-│       └── utils/                   # DeepSeekUtils, AliyunAsrUtils, MinioUtils, YtDlpUtils
-├── docker-compose.yml               # 中间件一键部署
-└── README.md
+│       ├── config/
+│       │   └── WebConfig.java           # 拦截器注册 + 跨域配置
+│       ├── consumer/
+│       │   └── VideoAnalysisConsumer.java  # RocketMQ 消费者
+│       ├── controller/
+│       │   ├── DebugController.java     # AI 分析 / 转写 / 下载
+│       │   ├── MediaController.java     # 上传 / 列表 / 删除
+│       │   └── UserController.java      # 注册 / 登录
+│       ├── entity/
+│       │   ├── AiSummaryResult.java     # AI 时间轴结果（独立存储）
+│       │   ├── MediaFile.java           # 视频文件元数据
+│       │   └── User.java               # 用户
+│       ├── exception/
+│       │   ├── TokenQuotaExceededException.java  # Token 超限异常
+│       │   └── GlobalExceptionHandler.java       # 全局异常 → HTTP 429
+│       ├── interceptor/
+│       │   └── AiTokenQuotaInterceptor.java      # Token 配额前置检查
+│       ├── service/
+│       │   ├── AiService.java           # 异步 AI 分析编排
+│       │   ├── TokenUsageService.java   # Redis Token 记账服务
+│       │   └── TokenUsageContext.java   # ThreadLocal 传递 userId
+│       ├── strategy/
+│       │   └── impl/
+│       │       └── AliyunDeepSeekStrategy.java  # AI 分析策略实现
+│       └── utils/
+│           ├── DeepSeekUtils.java       # DeepSeek API 调用 + Token 提取
+│           ├── AliyunAsrUtils.java      # 阿里云语音识别
+│           ├── MinioUtils.java          # MinIO 文件操作
+│           └── YtDlpUtils.java          # 在线视频下载
+├── docker-compose.yml                   # MySQL + Redis + MinIO + RocketMQ
+└── 测试计划与运行指南.md                 # 详细测试步骤
 ```
 
 <br/>
 
 ## License
 
-MIT License — 详见 [LICENSE](LICENSE) 文件。
+MIT — 详见 [LICENSE](LICENSE)
