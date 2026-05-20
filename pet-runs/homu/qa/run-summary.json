@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "run_dir": "D:\\github\\DOVideo-AI\\pet-runs\\homu",
+  "spritesheet": "D:\\github\\DOVideo-AI\\pet-runs\\homu\\final\\spritesheet.webp",
+  "pet_json": "D:\\github\\DOVideo-AI\\pet-runs\\homu\\final\\pet.json",
+  "validation": "D:\\github\\DOVideo-AI\\pet-runs\\homu\\final\\validation.json",
+  "contact_sheet": "D:\\github\\DOVideo-AI\\pet-runs\\homu\\qa\\contact-sheet.png",
+  "package": null,
+  "method": "local deterministic PIL drawing"
+}

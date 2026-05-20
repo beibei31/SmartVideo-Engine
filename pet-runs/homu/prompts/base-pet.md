@@ -1,0 +1,7 @@
+Create one clean full-body reference sprite for Codex pet Homu.
+
+Pet identity: Create a cute chibi mascot pet inspired by Homura Akemi reference images: small rounded proportions, calm protective personality, simplified long dark hair silhouette, violet eyes, white gray black magical-uniform-inspired accents, tiny bow, and a small round time-shield charm. It should feel like a loyal desk companion for coding: quiet, determined, gentle, and cute rather than combat-focused. Transform the references into an original mascot pet; avoid exact character duplication, weapons, text, scenery, or readable marks..
+Style: Pet-safe sprite: compact full-body mascot, readable in a 192x208 cell, clear silhouette, simple face, stable palette/materials, and crisp edges for chroma-key extraction. Style `sticker`: Polished sticker mascot with bold clean shapes, crisp outline, flat colors, and minimal highlight detail. User style notes: clean anime sticker mascot, compact full-body silhouette, large head, tiny body, soft outlines, pet-safe readable details, flat chroma background for extraction.
+
+
+Place a single centered pose on a perfectly flat pure green #00FF00 chroma-key background. Keep the full pet visible, compact, readable at 192x208, and easy to animate. Preserve approved reference identity cues. No scenery, text, borders, checkerboard transparency, shadows, glows, detached effects, or extra props. Keep #00FF00 and close colors out of the pet, props, highlights, and effects.
