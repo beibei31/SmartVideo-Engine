@@ -162,13 +162,11 @@ graph TB
 # 验证版本（必须是 21）
 java -version
 
-# 如果不是 21，临时设置：
-$env:JAVA_HOME = "D:\soft\Java\jdk-21"
 ```
 
 **1.2 安装 FFmpeg**
 
-从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载 Windows 版本，解压到本地目录（例如 `E:\ffmpeg\ffmpeg-8.1.1-essentials_build\bin`）。
+从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载 Windows 版本，解压到本地目录`）。
 
 **1.3 安装 yt-dlp**
 
@@ -183,7 +181,7 @@ Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/downloa
 阿里云百炼 ASR 要求音频文件必须通过公网 URL 访问。ngrok 用于将本地 MinIO 暴露到公网。
 
 1. 注册 [ngrok.com](https://ngrok.com) 账号
-2. 下载 ngrok.exe 到本地目录（例如 `E:\tool\ngrok`）
+2. 下载 ngrok.exe 到本地目录）
 3. 配置 authtoken：
 
 ```powershell
@@ -215,7 +213,7 @@ cd SmartVideo-Engine
 
 ### 第三步：设置 API 密钥（环境变量）
 
-**绝对不要**把 API Key 硬编码在 `application.properties` 中。项目已配置通过环境变量读取。
+可以选择不把 API Key 硬编码在 `application.properties` 中。项目已配置通过环境变量读取。
 
 创建项目根目录下的 `.env` 文件（已加入 `.gitignore`，不会被提交）：
 
