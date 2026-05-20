@@ -39,8 +39,8 @@ public class AiService {
             String text = aiAnalysisStrategy.transcribe(mediaFile.getFilePath());
             mediaFile.setTranscriptText(text);
 
-            // 2. 智能总结
-            String summary = aiAnalysisStrategy.generateSummary(mediaFile.getFilePath());
+            // 2. 智能总结（直接用已转写文字，不再重复ASR）
+            String summary = aiAnalysisStrategy.generateSummaryFromText(text);
             mediaFile.setAiSummary(summary);
             aiSummaryResultService.saveResult(mediaFile.getId(), mediaFile.getUserId(), summary);
 

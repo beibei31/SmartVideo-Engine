@@ -1,7 +1,8 @@
 package com.example.server.service;
 
+import org.redisson.api.RAtomicLong;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -12,12 +13,12 @@ public class TokenUsageService {
     private static final String KEY_PREFIX = "user:token:usage:";
     private static final Duration DAILY_TTL = Duration.ofHours(24);
 
-    private final StringRedisTemplate redisTemplate;
+    private final RedissonClient redissonClient;
     private final long dailyQuota;
 
-    public TokenUsageService(StringRedisTemplate redisTemplate,
+    public TokenUsageService(RedissonClient redissonClient,
                              @Value("${ai.token.daily-quota:50000}") long dailyQuota) {
-        this.redisTemplate = redisTemplate;
+        this.redissonClient = redissonClient;
         this.dailyQuota = dailyQuota;
     }
 
@@ -27,11 +28,9 @@ public class TokenUsageService {
         }
 
         String key = buildKey(userId);
-        redisTemplate.opsForValue().increment(key, totalTokens);
-        Long ttl = redisTemplate.getExpire(key);
-        if (ttl == null || ttl < 0) {
-            redisTemplate.expire(key, DAILY_TTL);
-        }
+        RAtomicLong counter = redissonClient.getAtomicLong(key);
+        counter.addAndGet(totalTokens);
+        counter.expire(DAILY_TTL);
     }
 
     public boolean hasQuota(Long userId) {
@@ -39,16 +38,12 @@ public class TokenUsageService {
             return true;
         }
 
-        String value = redisTemplate.opsForValue().get(buildKey(userId));
-        if (value == null || value.isBlank()) {
+        RAtomicLong counter = redissonClient.getAtomicLong(buildKey(userId));
+        if (!counter.isExists()) {
             return true;
         }
 
-        try {
-            return Long.parseLong(value) <= dailyQuota;
-        } catch (NumberFormatException ignored) {
-            return true;
-        }
+        return counter.get() <= dailyQuota;
     }
 
     public String buildKey(Long userId) {

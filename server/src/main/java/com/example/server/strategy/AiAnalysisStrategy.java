@@ -17,4 +17,10 @@ public interface AiAnalysisStrategy {
      * @param videoPath 视频路径或URL
      */
     String generateSummary(String videoPath);
+
+    /**
+     * 基于已转写的文本生成智能总结（避免重复ASR）
+     * @param transcriptText 已转写的文本内容
+     */
+    String generateSummaryFromText(String transcriptText);
 }

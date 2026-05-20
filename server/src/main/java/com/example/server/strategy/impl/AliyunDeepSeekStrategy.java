@@ -3,6 +3,7 @@ package com.example.server.strategy.impl;
 import com.example.server.strategy.AiAnalysisStrategy;
 import com.example.server.utils.AliyunAsrUtils;
 import com.example.server.utils.DeepSeekUtils;
+import com.example.server.utils.MinioUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,9 @@ public class AliyunDeepSeekStrategy implements AiAnalysisStrategy {
     @Autowired
     private DeepSeekUtils deepSeekUtils;
 
+    @Autowired
+    private MinioUtils minioUtils;
+
     @Value("${tool.ffmpeg.dir:}")
     private String ffmpegDir;
 
@@ -36,8 +40,18 @@ public class AliyunDeepSeekStrategy implements AiAnalysisStrategy {
         if (text.startsWith("ERROR:")) {
             return text;
         }
-
         return deepSeekUtils.analyzeContent("视频转写文本如下，请生成时间轴 JSON：\n" + text);
+    }
+
+    @Override
+    public String generateSummaryFromText(String transcriptText) {
+        if (transcriptText == null || transcriptText.isBlank()) {
+            return "ERROR: transcript text is empty";
+        }
+        if (transcriptText.startsWith("ERROR:") || transcriptText.startsWith("识别失败")) {
+            return transcriptText;
+        }
+        return deepSeekUtils.analyzeContent("视频转写文本如下，请生成时间轴 JSON：\n" + transcriptText);
     }
 
     private String processVideoToText(String inputPath) {
@@ -53,6 +67,7 @@ public class AliyunDeepSeekStrategy implements AiAnalysisStrategy {
         }
 
         String outputMp3Path = System.getProperty("java.io.tmpdir") + File.separator + "temp_" + UUID.randomUUID() + ".mp3";
+        String publicAudioUrl = null;
 
         try {
             System.out.println("[AI] extracting audio: " + inputPath);
@@ -62,14 +77,24 @@ public class AliyunDeepSeekStrategy implements AiAnalysisStrategy {
                 return "ERROR: FFmpeg failed to extract audio";
             }
 
-            return aliyunAsrUtils.audioToText(outputMp3Path);
+            // 上传到 MinIO 并获取公网 URL（供百炼 ASR 下载）
+            File mp3File = new File(outputMp3Path);
+            publicAudioUrl = minioUtils.uploadTempAudio(mp3File);
+            System.out.println("[AI] audio uploaded to MinIO: " + publicAudioUrl);
+
+            return aliyunAsrUtils.audioToText(publicAudioUrl);
         } catch (Exception e) {
             e.printStackTrace();
             return "ERROR: video transcription failed: " + e.getMessage();
         } finally {
+            // 清理本地临时文件
             File mp3 = new File(outputMp3Path);
             if (mp3.exists()) {
                 mp3.delete();
+            }
+            // 清理 MinIO 中的临时文件
+            if (publicAudioUrl != null) {
+                minioUtils.removeByUrl(publicAudioUrl);
             }
         }
     }

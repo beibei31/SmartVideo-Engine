@@ -13,6 +13,9 @@ rocketmq/data/
 rocketmq/logs/
 pet-runs/
 
+# Sensitive config
+application.properties
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,6 +1,7 @@
 package com.example.server.utils;
 
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -84,9 +85,13 @@ public class AliyunAsrUtils {
                     throw new RuntimeException("HTTP " + response.code() + ": " + responseBody);
                 }
                 JSONObject json = JSON.parseObject(responseBody);
-                String taskStatus = json.getString("task_status");
+                JSONObject output = json.getJSONObject("output");
+                if (output == null) {
+                    throw new RuntimeException("Response missing output: " + responseBody);
+                }
+                String taskStatus = output.getString("task_status");
                 if ("SUCCEEDED".equalsIgnoreCase(taskStatus)) {
-                    return extractTextFromTaskResult(json);
+                    return extractTextFromTaskResult(output);
                 }
                 if ("FAILED".equalsIgnoreCase(taskStatus) || "CANCELED".equalsIgnoreCase(taskStatus)) {
                     return "识别失败: " + responseBody;
@@ -97,22 +102,48 @@ public class AliyunAsrUtils {
         return "识别失败: 任务轮询超时";
     }
 
-    private String extractTextFromTaskResult(JSONObject taskResult) {
-        JSONObject output = taskResult.getJSONObject("output");
-        if (output == null) {
-            return "识别失败: 任务结果缺少output";
-        }
-
+    private String extractTextFromTaskResult(JSONObject output) throws Exception {
+        // Try direct text field first
         String text = output.getString("text");
         if (text != null && !text.isBlank()) {
             return text;
         }
 
-        Object results = output.get("results");
-        if (results != null) {
+        // Try results array
+        JSONArray results = output.getJSONArray("results");
+        if (results != null && !results.isEmpty()) {
+            JSONObject firstResult = results.getJSONObject(0);
+            String subtaskStatus = firstResult.getString("subtask_status");
+            if (!"SUCCEEDED".equalsIgnoreCase(subtaskStatus)) {
+                return "识别失败: subtask " + subtaskStatus + " - " + firstResult.getString("message");
+            }
+
+            // Download and parse transcription_url
+            String transcriptionUrl = firstResult.getString("transcription_url");
+            if (transcriptionUrl != null && !transcriptionUrl.isBlank()) {
+                return downloadTranscription(transcriptionUrl);
+            }
+
+            // Fallback: return raw results
             return results.toString();
         }
 
         return "识别失败: 未解析到文本结果";
+    }
+
+    private String downloadTranscription(String url) throws Exception {
+        Request request = new Request.Builder().url(url).get().build();
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("Failed to download transcription: HTTP " + response.code());
+            }
+            String body = response.body() != null ? response.body().string() : "";
+            JSONObject json = JSON.parseObject(body);
+            JSONArray transcripts = json.getJSONArray("transcripts");
+            if (transcripts != null && !transcripts.isEmpty()) {
+                return transcripts.getJSONObject(0).getString("text");
+            }
+            return "识别失败: transcription 结果为空";
+        }
     }
 }

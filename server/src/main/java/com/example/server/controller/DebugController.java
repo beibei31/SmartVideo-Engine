@@ -4,6 +4,7 @@ import com.example.server.dto.AnalysisTaskMsg;
 import com.example.server.entity.MediaFile;
 import com.example.server.mapper.MediaFileMapper;
 import com.example.server.service.AiService;
+import com.example.server.service.TokenUsageService;
 import com.example.server.strategy.AiAnalysisStrategy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -23,6 +24,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit; //导入时间单位
 
 @RestController
@@ -40,9 +43,14 @@ public class DebugController {
     @Autowired
     private AiService aiService;
 
+    @Autowired
+    private TokenUsageService tokenUsageService;
 
     @Autowired
     private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private Executor aiTaskExecutor;
 
     @Autowired
     private org.apache.rocketmq.spring.core.RocketMQTemplate rocketMQTemplate;
@@ -116,6 +124,36 @@ public class DebugController {
         aiService.asyncTranscribe(id);
 
         return "✅ 提取任务已后台运行！请稍后查看结果。";
+    }
+
+    //查询 Token 消耗
+    @GetMapping("/token-usage")
+    public Object tokenUsage(@RequestParam Long userId) {
+        String key = tokenUsageService.buildKey(userId);
+        var counter = redissonClient.getAtomicLong(key);
+        long used = counter.isExists() ? counter.get() : 0;
+        return java.util.Map.of(
+            "userId", userId,
+            "used", used,
+            "dailyQuota", 50000,
+            "remaining", Math.max(0, 50000 - used)
+        );
+    }
+
+    //直接AI分析接口(跳过MQ，异步执行ASR+总结)
+    @GetMapping("/ai-direct")
+    public String aiDirect(@RequestParam Long id) {
+        MediaFile file = mediaFileMapper.selectById(id);
+        if (file == null) return "❌ 文件不存在";
+
+        file.setAiSummary("正在分析中...");
+        mediaFileMapper.updateById(file);
+        String userIdKey = (file.getUserId() == null) ? "anon" : String.valueOf(file.getUserId());
+        redisTemplate.delete("media:list:user:" + userIdKey);
+
+        CompletableFuture.runAsync(() -> aiService.asyncAnalyze(id), aiTaskExecutor);
+
+        return "✅ 分析任务已启动(跳过MQ)！请等待结果。";
     }
 
     //下载音频接口

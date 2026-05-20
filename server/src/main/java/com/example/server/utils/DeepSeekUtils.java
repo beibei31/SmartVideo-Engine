@@ -52,7 +52,7 @@ public class DeepSeekUtils {
                 """;
 
         JSONObject jsonBody = new JSONObject();
-        jsonBody.put("model", "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B");
+        jsonBody.put("model", "deepseek-chat");
         jsonBody.put("stream", false);
 
         JSONArray messages = new JSONArray();

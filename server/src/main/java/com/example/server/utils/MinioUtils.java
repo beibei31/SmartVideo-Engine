@@ -23,6 +23,9 @@ public class MinioUtils {
     @Value("${minio.endpoint}")
     private String endpoint;
 
+    @Value("${minio.public-endpoint:http://localhost:9000}")
+    private String publicEndpoint;
+
     /**
      * 上传文件并返回访问 URL
      */
@@ -71,6 +74,42 @@ public class MinioUtils {
             System.out.println(" MinIO 文件已删除: " + objectName);
         } catch (Exception e) {
             System.err.println(" MinIO 删除失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 上传音频临时文件到 MinIO，返回公网可访问的 URL（供百炼 ASR 使用）
+     */
+    public String uploadTempAudio(java.io.File file) throws Exception {
+        String objectName = "asr_temp_" + UUID.randomUUID() + ".mp3";
+        try (java.io.FileInputStream inputStream = new java.io.FileInputStream(file)) {
+            minioClient.putObject(
+                    io.minio.PutObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(objectName)
+                            .stream(inputStream, file.length(), -1)
+                            .contentType("audio/mpeg")
+                            .build()
+            );
+        }
+        return publicEndpoint + "/" + bucketName + "/" + objectName;
+    }
+
+    /**
+     * 根据 URL 删除 MinIO 中的文件（兼容 public endpoint 和 local endpoint）
+     */
+    public void removeByUrl(String fileUrl) {
+        try {
+            String objectName = fileUrl.substring(fileUrl.lastIndexOf("/") + 1);
+            minioClient.removeObject(
+                    RemoveObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(objectName)
+                            .build()
+            );
+            System.out.println("[MinIO] temp file deleted: " + objectName);
+        } catch (Exception e) {
+            System.err.println("[MinIO] failed to delete temp file: " + e.getMessage());
         }
     }
 

@@ -26,6 +26,17 @@
             </button>
           </div>
 
+          <div v-if="currentUser" class="token-meter" title="今日 AI Token 消耗">
+            <div class="token-bar-track">
+              <div class="token-bar-fill" :style="{ width: tokenPercent + '%' }" :class="{ warn: tokenPercent > 80, danger: tokenPercent > 95 }"></div>
+            </div>
+            <div class="token-digits">
+              <span class="token-used">{{ fmtNum(tokenUsage.used) }}</span>
+              <span class="token-sep">/</span>
+              <span class="token-max">{{ fmtNum(tokenUsage.dailyQuota) }}</span>
+            </div>
+          </div>
+
           <div class="status-pill" :class="{ 'is-active': uploading }">
             <div class="status-dot"></div>
             <span class="status-text">{{ uploading ? '数据传输中...' : '系统就绪' }}</span>
@@ -278,6 +289,22 @@ const authMessage = ref('')
 const authError = ref(false)
 const authForm = ref({ username: '', password: '', nickname: '' })
 const pollingTimers = ref({})
+const tokenUsage = ref({ used: 0, dailyQuota: 50000, remaining: 50000 })
+const tokenPercent = computed(() => {
+  if (!tokenUsage.value.dailyQuota) return 0
+  return Math.min(100, (tokenUsage.value.used / tokenUsage.value.dailyQuota) * 100)
+})
+const fmtNum = (n) => {
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  return String(n)
+}
+const fetchTokenUsage = async () => {
+  if (!currentUser.value) return
+  try {
+    const res = await fetch(`http://localhost:9090/debug/token-usage?userId=${currentUser.value.id}`)
+    if (res.ok) tokenUsage.value = await res.json()
+  } catch (e) { /* silent */ }
+}
 
 // Markdown 解析
 const renderedMarkdown = computed(() => {
@@ -640,6 +667,7 @@ const startPolling = (id, type) => {
         showMsg("⚠️ 任务结束，但存在错误", true)
       } else {
         showMsg("✅ 任务完成")
+        fetchTokenUsage()
       }
 
       clearInterval(timer)
@@ -732,6 +760,8 @@ onMounted(() => {
     } catch(e) {}
   }
   fetchList()
+  fetchTokenUsage()
+  setInterval(() => fetchTokenUsage(), 60000)
 })
 </script>
 
@@ -784,6 +814,30 @@ html, body, #app {
 .status-pill { display: flex; align-items: center; gap: 8px; background: var(--bg-card); padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border-tech); font-size: 0.8rem; color: var(--text-sub); }
 .status-dot { width: 6px; height: 6px; background: var(--accent-lime); border-radius: 50%; }
 .status-pill.is-active .status-dot { animation: pulse-lime 1.5s infinite alternate; }
+
+/* Token 消耗计量器 */
+.token-meter {
+  display: flex; flex-direction: column; gap: 4px; min-width: 130px;
+  background: var(--bg-card); padding: 6px 12px; border-radius: 4px;
+  border: 1px solid var(--border-tech); cursor: default;
+}
+.token-bar-track {
+  width: 100%; height: 4px; background: #1a1d22; border-radius: 2px; overflow: hidden;
+}
+.token-bar-fill {
+  height: 100%; background: var(--accent-lime); border-radius: 2px;
+  transition: width 0.6s ease;
+  box-shadow: 0 0 6px rgba(197, 249, 70, 0.5);
+}
+.token-bar-fill.warn { background: #f0a500; box-shadow: 0 0 6px rgba(240, 165, 0, 0.5); }
+.token-bar-fill.danger { background: #ff4757; box-shadow: 0 0 6px rgba(255, 71, 87, 0.5); animation: blink 0.8s infinite; }
+.token-digits {
+  display: flex; align-items: baseline; gap: 2px;
+  font-family: monospace; font-size: 0.7rem; color: var(--text-sub);
+}
+.token-used { color: var(--accent-lime); font-weight: 700; }
+.token-sep { color: var(--text-sub); margin: 0 1px; }
+.token-max { color: var(--text-sub); font-size: 0.65rem; }
 
 /* Hero */
 .main-container { max-width: 1200px; margin: 0 auto; padding: 4rem 2rem; }
