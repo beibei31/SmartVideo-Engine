@@ -1,5 +1,6 @@
 package com.example.server.interceptor;
 
+import com.example.server.context.TokenUsageContext;
 import com.example.server.entity.MediaFile;
 import com.example.server.exception.TokenQuotaExceededException;
 import com.example.server.mapper.MediaFileMapper;
@@ -26,8 +27,13 @@ public class AiTokenQuotaInterceptor implements HandlerInterceptor {
         if (!tokenUsageService.hasQuota(userId)) {
             throw new TokenQuotaExceededException("今日 AI 算力已耗尽");
         }
-        request.setAttribute("aiUserId", userId);
+        TokenUsageContext.setUserId(userId);
         return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
+        TokenUsageContext.clear();
     }
 
     private Long resolveUserId(HttpServletRequest request) {

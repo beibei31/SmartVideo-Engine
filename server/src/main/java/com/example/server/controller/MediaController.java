@@ -1,11 +1,14 @@
 package com.example.server.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.server.dto.ChunkCheckRequest;
+import com.example.server.dto.ChunkCheckResponse;
+import com.example.server.dto.ChunkMergeRequest;
 import com.example.server.entity.MediaFile;
 import com.example.server.mapper.MediaFileMapper;
 import com.example.server.service.MediaService;
 import com.example.server.utils.MinioUtils;
-import com.example.server.utils.YtDlpUtils; //确保导入这个
+import com.example.server.utils.YtDlpUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @RestController
@@ -169,6 +173,115 @@ public class MediaController {
         return list;
     }
 
+    // ==============================
+    // 分片上传三接口
+    // ==============================
+
+    /**
+     * POST /media/chunk/check — 秒传/断点续传/新任务 状态检查
+     */
+    @PostMapping("/chunk/check")
+    public ResponseEntity<ChunkCheckResponse> chunkCheck(@RequestBody ChunkCheckRequest request) {
+        try {
+            ChunkCheckResponse response = mediaService.checkUpload(request);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body(null);
+        }
+    }
+
+    /**
+     * POST /media/chunk/upload — 上传单个分片
+     */
+    @PostMapping("/chunk/upload")
+    public ResponseEntity<Map<String, Object>> chunkUpload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("md5") String md5,
+            @RequestParam("chunkIndex") int chunkIndex,
+            @RequestParam("totalChunks") int totalChunks,
+            @RequestParam("chunkMd5") String chunkMd5) {
+        try {
+            if (file == null || file.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("success", false, "error", "分片数据为空"));
+            }
+            mediaService.uploadChunk(file.getInputStream(), md5, chunkIndex, totalChunks, chunkMd5);
+            return ResponseEntity.ok(Map.of("success", true, "chunkIndex", chunkIndex));
+        } catch (IllegalArgumentException e) {
+            // MD5 校验失败
+            return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "error", e.getMessage()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500)
+                    .body(Map.of("success", false, "error", e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /media/chunk/merge — 合并所有分片为完整文件
+     */
+    @PostMapping("/chunk/merge")
+    public ResponseEntity<Map<String, Object>> chunkMerge(@RequestBody ChunkMergeRequest request) {
+        try {
+            MediaFile mediaFile = mediaService.mergeChunks(
+                    request.getMd5(),
+                    request.getFilename(),
+                    request.getFileSize(),
+                    request.getTotalChunks(),
+                    request.getUserId()
+            );
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "mediaId", mediaFile.getId(),
+                    "fileUrl", mediaFile.getFilePath(),
+                    "filename", mediaFile.getFilename()
+            ));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(409)
+                    .body(Map.of("success", false, "error", e.getMessage()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500)
+                    .body(Map.of("success", false, "error", e.getMessage()));
+        }
+    }
+
+    /**
+     * GET /media/access/{id} — 获取媒体文件的预签名访问 URL（1 小时有效）
+     * MinIO bucket 为 private 模式，前端不能直接用 filePath，需要走后端拿预签名 URL
+     */
+    @GetMapping("/access/{id}")
+    public ResponseEntity<Map<String, Object>> getAccessUrl(@PathVariable Long id) {
+        try {
+            MediaFile media = mediaFileMapper.selectById(id);
+            if (media == null) {
+                return ResponseEntity.status(404)
+                        .body(Map.of("error", "文件不存在"));
+            }
+
+            // 从 filePath 中提取 MinIO objectName
+            // filePath 格式: http://localhost:9000/media/uuid.mp4
+            String objectName = extractObjectName(media.getFilePath());
+            if (objectName == null) {
+                return ResponseEntity.status(500)
+                        .body(Map.of("error", "无法解析文件路径"));
+            }
+
+            String presignedUrl = minioUtils.getPresignedUrl(objectName, 3600);
+            return ResponseEntity.ok(Map.of(
+                    "url", presignedUrl,
+                    "filename", media.getFilename() != null ? media.getFilename() : objectName,
+                    "mediaId", media.getId()
+            ));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+
     //删除接口
     @DeleteMapping("/delete")
     public String delete(@RequestParam("id") Long id,
@@ -194,5 +307,24 @@ public class MediaController {
         }
 
         return "删除成功";
+    }
+
+    /**
+     * 从 filePath 中提取 MinIO objectName
+     * 输入: http://localhost:9000/media/uuid.mp4 → uuid.mp4
+     * 输入: chunks/md5/00001 → chunks/md5/00001
+     */
+    private String extractObjectName(String filePath) {
+        if (filePath == null) return null;
+        // 尝试作为 URL 解析
+        int bucketIdx = filePath.indexOf("/media/");
+        if (bucketIdx >= 0) {
+            return filePath.substring(bucketIdx + 7); // 跳过 "/media/"
+        }
+        // 如果已经是相对路径（分片等），直接返回
+        if (filePath.contains("/") && !filePath.startsWith("http")) {
+            return filePath;
+        }
+        return filePath.substring(filePath.lastIndexOf("/") + 1);
     }
 }

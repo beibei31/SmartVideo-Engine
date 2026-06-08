@@ -140,10 +140,30 @@ public class AliyunAsrUtils {
             String body = response.body() != null ? response.body().string() : "";
             JSONObject json = JSON.parseObject(body);
             JSONArray transcripts = json.getJSONArray("transcripts");
-            if (transcripts != null && !transcripts.isEmpty()) {
-                return transcripts.getJSONObject(0).getString("text");
+            if (transcripts == null || transcripts.isEmpty()) {
+                return "识别失败: transcription 结果为空";
             }
-            return "识别失败: transcription 结果为空";
+
+            JSONObject firstTranscript = transcripts.getJSONObject(0);
+            JSONArray sentences = firstTranscript.getJSONArray("sentences");
+
+            if (sentences != null && !sentences.isEmpty()) {
+                StringBuilder timeStampedText = new StringBuilder();
+                for (int i = 0; i < sentences.size(); i++) {
+                    JSONObject sentence = sentences.getJSONObject(i);
+                    String text = sentence.getString("text");
+                    long beginTime = sentence.getLongValue("begin_time");
+                    long endTime = sentence.getLongValue("end_time");
+
+                    String timeRange = String.format("[%.1fs - %.1fs] ",
+                            beginTime / 1000.0, endTime / 1000.0);
+                    timeStampedText.append(timeRange).append(text).append("\n");
+                }
+                return timeStampedText.toString();
+            }
+
+            // 兜底：API 没有 sentences 时退回纯文本
+            return firstTranscript.getString("text");
         }
     }
 }

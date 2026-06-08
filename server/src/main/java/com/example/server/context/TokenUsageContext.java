@@ -1,4 +1,4 @@
-package com.example.server.service;
+package com.example.server.context;
 
 public final class TokenUsageContext {
 

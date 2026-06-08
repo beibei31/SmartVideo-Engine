@@ -24,6 +24,11 @@ public class MediaFile {
     private String transcriptText;
     private String coverUrl;
 
+    // 分片上传 + MD5 去重 新增字段
+    private String fileMd5;
+    private Long fileSize;
+    private Integer chunkCount;
+
     //【修改点】删掉了 @TableField(fill = ...) 注解
     //上传时间由数据库自动记录，Java 不插手，防止报错
     private LocalDateTime uploadTime;

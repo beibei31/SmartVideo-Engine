@@ -22,5 +22,5 @@ public interface AiAnalysisStrategy {
      * 基于已转写的文本生成智能总结（避免重复ASR）
      * @param transcriptText 已转写的文本内容
      */
-    String generateSummaryFromText(String transcriptText);
+    String generateSummaryFromText(String transcriptText);//一般路径是transcribe+generateSummaryFromText，特别的是generateSummary一次完成
 }

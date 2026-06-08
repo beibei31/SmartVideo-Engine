@@ -59,10 +59,28 @@ public class AliyunDeepSeekStrategy implements AiAnalysisStrategy {
             return "ERROR: video path is empty";
         }
 
-        if (!inputPath.startsWith("http")) {
-            File localFile = new File(inputPath);
+        // MinIO Bucket 为 Private 模式，HTTP 直连会被 403 拒绝
+        // 通过 MinIO SDK（携带 accessKey/secretKey）下载到本地临时文件，再给 FFmpeg 处理
+        String localVideoPath = null;
+        boolean needCleanupLocalVideo = false;
+
+        if (inputPath.startsWith("http")) {
+            try {
+                String objectName = minioUtils.extractObjectName(inputPath);
+                localVideoPath = System.getProperty("java.io.tmpdir") + File.separator
+                        + "temp_video_" + UUID.randomUUID() + ".mp4";
+                System.out.println("[AI] downloading video from MinIO: " + objectName);
+                minioUtils.downloadObject(objectName, localVideoPath);
+                needCleanupLocalVideo = true;
+                System.out.println("[AI] video downloaded to: " + localVideoPath);
+            } catch (Exception e) {
+                return "ERROR: failed to download video from MinIO: " + e.getMessage();
+            }
+        } else {
+            localVideoPath = inputPath;
+            File localFile = new File(localVideoPath);
             if (!localFile.exists()) {
-                return "ERROR: video file not found: " + inputPath;
+                return "ERROR: video file not found: " + localVideoPath;
             }
         }
 
@@ -70,14 +88,14 @@ public class AliyunDeepSeekStrategy implements AiAnalysisStrategy {
         String publicAudioUrl = null;
 
         try {
-            System.out.println("[AI] extracting audio: " + inputPath);
+            System.out.println("[AI] extracting audio: " + localVideoPath);
 
-            boolean success = extractAudio(inputPath, outputMp3Path);
+            boolean success = extractAudio(localVideoPath, outputMp3Path);
             if (!success) {
                 return "ERROR: FFmpeg failed to extract audio";
             }
 
-            // 上传到 MinIO 并获取公网 URL（供百炼 ASR 下载）
+            // 上传到 MinIO 并获取预签名 URL（供百炼 ASR 下载）
             File mp3File = new File(outputMp3Path);
             publicAudioUrl = minioUtils.uploadTempAudio(mp3File);
             System.out.println("[AI] audio uploaded to MinIO: " + publicAudioUrl);
@@ -87,12 +105,20 @@ public class AliyunDeepSeekStrategy implements AiAnalysisStrategy {
             e.printStackTrace();
             return "ERROR: video transcription failed: " + e.getMessage();
         } finally {
-            // 清理本地临时文件
+            // 清理本地临时 mp3
             File mp3 = new File(outputMp3Path);
             if (mp3.exists()) {
                 mp3.delete();
             }
-            // 清理 MinIO 中的临时文件
+            // 清理本地临时视频（从 MinIO 下载的）
+            if (needCleanupLocalVideo && localVideoPath != null) {
+                File localVideo = new File(localVideoPath);
+                if (localVideo.exists()) {
+                    localVideo.delete();
+                    System.out.println("[AI] temp local video deleted: " + localVideoPath);
+                }
+            }
+            // 清理 MinIO 中的临时音频
             if (publicAudioUrl != null) {
                 minioUtils.removeByUrl(publicAudioUrl);
             }

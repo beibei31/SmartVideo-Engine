@@ -3,7 +3,6 @@ package com.example.server.config;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
-import io.minio.SetBucketPolicyArgs;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,35 +37,7 @@ public class MinioConfig {
                 client.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
             }
 
-            //强制设置权限为 Public (只读权限)
-            String policyJson = "{\n" +
-                    "  \"Version\": \"2012-10-17\",\n" +
-                    "  \"Statement\": [\n" +
-                    "    {\n" +
-                    "      \"Effect\": \"Allow\",\n" +
-                    "      \"Principal\": {\n" +
-                    "        \"AWS\": [\n" +
-                    "          \"*\"\n" +
-                    "        ]\n" +
-                    "      },\n" +
-                    "      \"Action\": [\n" +
-                    "        \"s3:GetObject\"\n" +
-                    "      ],\n" +
-                    "      \"Resource\": [\n" +
-                    "        \"arn:aws:s3:::" + bucketName + "/*\"\n" +
-                    "      ]\n" +
-                    "    }\n" +
-                    "  ]\n" +
-                    "}";
-
-            client.setBucketPolicy(
-                    SetBucketPolicyArgs.builder()
-                            .bucket(bucketName)
-                            .config(policyJson)
-                            .build()
-            );
-
-            System.out.println("  MinIO 配置成功，桶权限已强制设置为 Public！");
+            System.out.println("  MinIO 配置成功，桶权限为 Private（通过预签名 URL 访问）！");
             return client;
 
         } catch (Exception e) {

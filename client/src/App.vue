@@ -106,7 +106,16 @@
 
             <div class="magnet-content busy" v-else>
               <div class="quantum-loader"></div>
-              <span class="busy-text">正在建立通道并解析资源...</span>
+              <span class="busy-text">{{ message }}</span>
+              <!-- 分片上传进度条 -->
+              <div v-if="chunkProgress > 0 || md5Computing" class="chunk-progress-bar">
+                <div class="chunk-progress-track">
+                  <div class="chunk-progress-fill" :style="{ width: (md5Computing ? md5Progress : chunkProgress) + '%' }"></div>
+                </div>
+                <span class="chunk-progress-text">
+                  {{ md5Computing ? '校验文件指纹 ' + md5Progress + '%' : chunkProgress + '%' }}
+                </span>
+              </div>
             </div>
 
             <div class="border-glow"></div>
@@ -201,10 +210,10 @@
           <div v-else>
             <div v-if="sidebar.type === 'ai' && timelineItems.length > 0" class="timeline-guide">
               <video
-                  v-if="selectedMedia && selectedMedia.filePath"
+                  v-if="presignedVideoUrl"
                   ref="videoElement"
                   class="timeline-video"
-                  :src="selectedMedia.filePath"
+                  :src="presignedVideoUrl"
                   controls
                   playsinline
               ></video>
@@ -270,6 +279,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { marked } from 'marked'
+import SparkMD5 from 'spark-md5'
 
 // --- 变量定义 ---
 const file = ref(null)
@@ -282,6 +292,7 @@ const sidebar = ref({ visible: false, type: 'ai', title: '', content: '', loadin
 const currentUser = ref(null)
 const selectedMedia = ref(null)
 const videoElement = ref(null)
+const presignedVideoUrl = ref('')
 const showAuthModal = ref(false)
 const authMode = ref('login')
 const authLoading = ref(false)
@@ -290,6 +301,9 @@ const authError = ref(false)
 const authForm = ref({ username: '', password: '', nickname: '' })
 const pollingTimers = ref({})
 const tokenUsage = ref({ used: 0, dailyQuota: 50000, remaining: 50000 })
+const chunkProgress = ref(0)      // 分片上传进度百分比
+const md5Computing = ref(false)   // MD5 计算中
+const md5Progress = ref(0)        // MD5 计算进度
 const tokenPercent = computed(() => {
   if (!tokenUsage.value.dailyQuota) return 0
   return Math.min(100, (tokenUsage.value.used / tokenUsage.value.dailyQuota) * 100)
@@ -375,10 +389,226 @@ const handleDrop = async (e) => {
   await uploadFile()
 }
 
-// 【普通文件上传】
+// ==============================
+// 分片上传核心逻辑
+// ==============================
+
+const CHUNK_SIZE = 5 * 1024 * 1024 // 5MB
+const MAX_CONCURRENT = 3           // 并发上传数
+const MAX_RETRIES = 3              // 单分片最大重试次数
+
+/**
+ * 使用 spark-md5 增量计算文件 MD5
+ * 大文件分片读取，不阻塞 UI
+ */
+const computeFileMd5 = (file) => {
+  return new Promise((resolve, reject) => {
+    md5Computing.value = true
+    md5Progress.value = 0
+    const chunkSize = 2 * 1024 * 1024 // 2MB 读取块
+    const chunks = Math.ceil(file.size / chunkSize)
+    const spark = new SparkMD5.ArrayBuffer()
+    const reader = new FileReader()
+    let currentChunk = 0
+
+    reader.onload = (e) => {
+      spark.append(e.target.result)
+      currentChunk++
+      md5Progress.value = Math.round((currentChunk / chunks) * 100)
+      if (currentChunk < chunks) {
+        loadNext()
+      } else {
+        const md5 = spark.end()
+        md5Computing.value = false
+        resolve(md5)
+      }
+    }
+
+    reader.onerror = () => {
+      md5Computing.value = false
+      reject(new Error('MD5 计算失败'))
+    }
+
+    const loadNext = () => {
+      const start = currentChunk * chunkSize
+      const end = Math.min(start + chunkSize, file.size)
+      reader.readAsArrayBuffer(file.slice(start, end))
+    }
+
+    loadNext()
+  })
+}
+
+/**
+ * 分片上传完整流程: check → upload chunks → merge
+ */
+const uploadFileChunked = async (file) => {
+  chunkProgress.value = 0
+
+  try {
+    // Step 1: 计算文件 MD5
+    message.value = '正在校验文件指纹...'
+    const md5 = await computeFileMd5(file)
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
+    console.log('[分片上传] MD5=' + md5 + ' 总分片=' + totalChunks)
+
+    // Step 2: 检查上传状态
+    message.value = '正在检查上传进度...'
+    const checkRes = await fetch('http://localhost:9090/media/chunk/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        md5: md5,
+        filename: file.name,
+        fileSize: file.size,
+        chunkSize: CHUNK_SIZE,
+        totalChunks: totalChunks
+      })
+    })
+    const checkData = await checkRes.json()
+
+    // 秒传：文件已存在
+    if (checkData.status === 'completed' || checkData.deduplicated) {
+      showMsg('⚡ 秒传成功，文件已存在')
+      chunkProgress.value = 100
+      fetchList()
+      return
+    }
+
+    // Step 3: 过滤已传分片，构建待传列表
+    const uploadedSet = new Set(checkData.uploadedChunks || [])
+    const pendingChunks = []
+    for (let i = 0; i < totalChunks; i++) {
+      if (!uploadedSet.has(i)) {
+        pendingChunks.push(i)
+      }
+    }
+
+    if (pendingChunks.length === 0) {
+      // 所有分片已传完，直接合并
+      message.value = '分片已全部上传，正在合并...'
+    } else {
+      console.log('[分片上传] 已传 ' + uploadedSet.size + '/' + totalChunks
+        + ' 待传 ' + pendingChunks.length)
+    }
+
+    // Step 4: 并发上传待传分片（3 个并发）
+    let completedCount = uploadedSet.size
+    const updateProgress = () => {
+      chunkProgress.value = Math.round((completedCount / totalChunks) * 95) // 留 5% 给合并
+      message.value = '分片传输中 ' + completedCount + '/' + totalChunks
+    }
+    updateProgress()
+
+    // 并发控制器
+    const uploadQueue = [...pendingChunks]
+    const uploadSingleChunk = async (chunkIndex) => {
+      const start = chunkIndex * CHUNK_SIZE
+      const end = Math.min(start + CHUNK_SIZE, file.size)
+      const blob = file.slice(start, end)
+
+      // 计算分片 MD5
+      const chunkSpark = new SparkMD5.ArrayBuffer()
+      const chunkData = await blob.arrayBuffer()
+      chunkSpark.append(chunkData)
+      const chunkMd5 = chunkSpark.end()
+
+      // 上传分片（带重试）
+      for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+        try {
+          const formData = new FormData()
+          formData.append('file', blob, file.name + '.part.' + chunkIndex)
+          formData.append('md5', md5)
+          formData.append('chunkIndex', chunkIndex)
+          formData.append('totalChunks', totalChunks)
+          formData.append('chunkMd5', chunkMd5)
+
+          const res = await fetch('http://localhost:9090/media/chunk/upload', {
+            method: 'POST',
+            body: formData
+          })
+          const data = await res.json()
+
+          if (data.success) {
+            completedCount++
+            updateProgress()
+            return // 成功
+          } else {
+            // MD5 校验失败，不可重试的错
+            if (data.error && data.error.includes('MD5')) {
+              throw new Error('分片 ' + chunkIndex + ' MD5 校验失败: ' + data.error)
+            }
+            throw new Error(data.error || '上传失败')
+          }
+        } catch (err) {
+          console.warn('[分片上传] chunk ' + chunkIndex + ' 第' + (retry + 1) + '次失败: ' + err.message)
+          if (retry === MAX_RETRIES) {
+            throw new Error('分片 ' + chunkIndex + ' 重试 ' + MAX_RETRIES + ' 次后仍失败: ' + err.message)
+          }
+          // 等待后重试
+          await new Promise(r => setTimeout(r, 1000 * (retry + 1)))
+        }
+      }
+    }
+
+    // 并发执行
+    const running = new Set()
+    for (const chunkIndex of uploadQueue) {
+      const promise = uploadSingleChunk(chunkIndex).finally(() => running.delete(promise))
+      running.add(promise)
+      if (running.size >= MAX_CONCURRENT) {
+        await Promise.race(running)
+      }
+    }
+    await Promise.all(running)
+
+    // Step 5: 发起合并请求
+    chunkProgress.value = 95
+    message.value = '正在合并分片并校验完整性...'
+
+    const mergeRes = await fetch('http://localhost:9090/media/chunk/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        md5: md5,
+        filename: file.name,
+        fileSize: file.size,
+        totalChunks: totalChunks,
+        userId: currentUser.value ? currentUser.value.id : null
+      })
+    })
+    const mergeData = await mergeRes.json()
+
+    if (mergeData.success) {
+      chunkProgress.value = 100
+      showMsg('✅ 上传完成')
+      fetchList()
+    } else {
+      throw new Error(mergeData.error || '合并失败')
+    }
+  } catch (error) {
+    console.error('[分片上传] 失败: ' + error.message)
+    showMsg('❌ 上传失败: ' + error.message, true)
+    chunkProgress.value = 0
+  }
+}
+
+// 【文件上传入口：大文件分片，小文件直传】
 const uploadFile = async () => {
   if (!file.value) return
   uploading.value = true
+
+  // > 5MB 走分片上传
+  if (file.value.size > CHUNK_SIZE) {
+    try {
+      await uploadFileChunked(file.value)
+    } finally {
+      uploading.value = false
+    }
+    return
+  }
+
+  // 小文件走原单次上传
   message.value = '正在建立加密通道并上传数据...'
   const formData = new FormData()
   formData.append('file', file.value)
@@ -504,6 +734,18 @@ const formatSeconds = (seconds) => {
   return `${minutes}:${String(rest).padStart(2, '0')}`
 }
 
+const fetchPresignedUrl = async (mediaId) => {
+  try {
+    const res = await fetch(`http://localhost:9090/media/access/${mediaId}`)
+    const data = await res.json()
+    if (data.url) {
+      presignedVideoUrl.value = data.url
+    }
+  } catch (e) {
+    console.error('获取预签名URL失败:', e)
+  }
+}
+
 const jumpTo = async (startTime) => {
   if (!videoElement.value) return
   videoElement.value.currentTime = Math.max(0, Number.parseInt(startTime, 10) || 0)
@@ -573,6 +815,7 @@ const aiAnalyze = async (id) => {
     openSidebar('ai', 'AI 智能总结')
     sidebar.value.content = item.aiSummary
     sidebar.value.loading = false
+    fetchPresignedUrl(item.id)
     return
   }
 
@@ -694,7 +937,10 @@ const openSidebar = (type, title) => {
   sidebar.value.content = ''
   if (type !== 'ai') selectedMedia.value = null
 }
-const closeSidebar = () => { sidebar.value.visible = false }
+const closeSidebar = () => {
+  sidebar.value.visible = false
+  presignedVideoUrl.value = ''
+}
 
 const openAuthModal = () => {
   showAuthModal.value = true
@@ -927,6 +1173,22 @@ html, body, #app {
   background: var(--bg-card); position: relative; z-index: 50;
 }
 .busy-text { margin-top: 15px; color: var(--accent-lime); font-family: monospace; animation: pulse-lime 2s infinite; }
+
+/* 分片上传进度条 */
+.chunk-progress-bar {
+  margin-top: 16px; width: 60%; max-width: 360px;
+  display: flex; flex-direction: column; gap: 6px; align-items: center;
+}
+.chunk-progress-track {
+  width: 100%; height: 6px; background: #1a1d22; border-radius: 3px; overflow: hidden;
+}
+.chunk-progress-fill {
+  height: 100%; background: var(--accent-lime); border-radius: 3px;
+  transition: width 0.3s ease; box-shadow: 0 0 8px rgba(197, 249, 70, 0.4);
+}
+.chunk-progress-text {
+  font-family: monospace; font-size: 0.75rem; color: var(--text-sub);
+}
 /* === [END] 重构结束 === */
 
 .notification-bar { margin-top: 2rem; display: inline-block; background: var(--accent-lime); color: var(--text-inverse); padding: 10px 24px; font-weight: 700; border-radius: 4px; clip-path: polygon(5% 0%, 100% 0%, 95% 100%, 0% 100%); }

@@ -3,7 +3,7 @@ package com.example.server.utils;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
-import com.example.server.service.TokenUsageContext;
+import com.example.server.context.TokenUsageContext;
 import com.example.server.service.TokenUsageService;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -38,18 +38,28 @@ public class DeepSeekUtils {
     public String analyzeContent(String content) {
         String url = baseUrl + "/chat/completions";
         String systemPrompt = """
-                你是一个视频内容提炼专家。请从用户提供的视频转写文本中提取 5 到 8 个核心关键点，生成可点击的视频时间轴导览。
+                你是一个专业的视频内容分析专家。
+                用户会提供一段带有精确时间戳的视频转写文本，格式为：[开始秒数 - 结束秒数] 句子内容。
+                请根据上下文语义，将内容划分为几个核心章节，并输出严格的 JSON 数组格式。
 
-                必须严格遵守以下规则：
-                1. 只能输出 JSON 数组，不要输出 Markdown、解释、代码块、前后缀或任何额外废话。
-                2. 数组元素格式必须是：{"startTime": 120, "topic": "分布式锁原理", "summary": "这一段讲了..."}。
-                3. startTime 必须是整数秒数。如果原文没有明确时间戳，请根据内容顺序估算，从 0 开始均匀递增。
-                4. topic 使用 6 到 14 个中文字符，summary 使用 20 到 60 个中文字符。
-                5. 输出必须能被 JSON.parse 直接解析。
+                【绝对指令 - 必须严格遵守】
+                1. 时间戳提取：每个章节的 startTime 必须严格等于该章节第一句话的 [开始秒数]。绝不允许自己计算、估算或编造时间！
+                2. 提取精度：startTime 请保留为数字类型，如果是 12.5s，则输出 12.5。
+                3. 摘要浓缩：每个章节的 summary 请控制在 50 字以内，直击要点。
 
-                示例：
-                [{"startTime":0,"topic":"开场背景","summary":"介绍本期视频的问题背景和主要讨论方向。"},{"startTime":120,"topic":"分布式锁原理","summary":"解释分布式锁如何协调多实例并发访问共享资源。"}]
-                """;
+                【输出格式标准】
+                [
+                  {
+                    "startTime": 0.0,
+                    "topic": "前言介绍",
+                    "summary": "介绍了本次教程的核心目的和所需环境。"
+                  },
+                  {
+                    "startTime": 45.2,
+                    "topic": "核心代码编写",
+                    "summary": "演示了如何配置拦截器并解析时间戳。"
+                  }
+                ]""";
 
         JSONObject jsonBody = new JSONObject();
         jsonBody.put("model", "deepseek-chat");
