@@ -15,6 +15,10 @@ rocketmq/logs/
 # Sensitive config
 application.properties
 
+# Interview notes
+面试拷打
+面试拷打.bak
+
 # OS
 .DS_Store
 Thumbs.db
