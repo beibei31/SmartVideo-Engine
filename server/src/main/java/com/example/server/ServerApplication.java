@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 
 @SpringBootApplication
-@MapperScan("com.example.server.mapper")
+@MapperScan({"com.example.server.mapper", "com.example.server.rag.mapper"})
 public class ServerApplication {
 
 	public static void main(String[] args) {

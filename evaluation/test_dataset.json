@@ -1,0 +1,42 @@
+[
+  {
+    "question": "Transformer的核心组件有哪些？",
+    "ground_truth": "Transformer的核心组件包括自注意力机制、多头注意力、位置编码和前馈神经网络。"
+  },
+  {
+    "question": "Transformer相较于RNN有什么优势？",
+    "ground_truth": "Transformer解决了RNN的两个主要问题：一是梯度消失导致长距离依赖难以捕捉，二是顺序计算的局限性导致无法充分利用GPU并行计算能力。Transformer通过自注意力机制解决了这两个问题。"
+  },
+  {
+    "question": "自注意力机制的作用是什么？",
+    "ground_truth": "自注意力机制允许模型在处理序列时，动态地为每个位置分配不同的权重，从而捕捉序列中任意两个位置之间的依赖关系。"
+  },
+  {
+    "question": "多头注意力是如何工作的？",
+    "ground_truth": "多头注意力是将自注意力机制并行执行多次，每个头关注不同的表示子空间，最后将多个头的结果拼接起来。"
+  },
+  {
+    "question": "Transformer是什么时候由谁提出的？",
+    "ground_truth": "Transformer是由Google在2017年发表的论文《Attention Is All You Need》中提出的深度学习架构。"
+  },
+  {
+    "question": "视频里的人在娃娃机那里遇到了什么情况？",
+    "ground_truth": "视频里的人原本想去抓娃娃，但没想到那边在搞活动，有很多卖游子，同时因为看不清楚把美瞳摘了。"
+  },
+  {
+    "question": "视频里的人为什么把美瞳摘了？",
+    "ground_truth": "因为看不清楚。"
+  },
+  {
+    "question": "魔法少女视频的内容是什么？",
+    "ground_truth": "是一个日语视频，内容包含重复的关于魔法少女的台词。"
+  },
+  {
+    "question": "一共有几个视频被分析？",
+    "ground_truth": "一共有三个视频：一个讲解Transformer原理，一个关于抓娃娃的日常记录，一个是日语魔法少女视频。"
+  },
+  {
+    "question": "位置编码的作用是什么？",
+    "ground_truth": "位置编码的作用是让模型知道输入序列中每个词的位置，因为Transformer不像RNN那样天然具备位置信息。"
+  }
+]

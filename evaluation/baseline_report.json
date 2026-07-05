@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-06-12 16:47:49",
+  "test_cases": 10,
+  "averages": {
+    "faithfulness": 9.4,
+    "answer_relevancy": 8.8,
+    "context_precision": 9.0
+  }
+}
