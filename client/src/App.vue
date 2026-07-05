@@ -186,6 +186,19 @@
                 </div>
                 <div class="shimmer"></div>
               </button>
+
+              <button
+                  class="dock-item agent-core"
+                  :disabled="item.status !== 'COMPLETED'"
+                  @click="askVideoAgent(item.id)"
+              >
+                <span class="item-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"></path><path d="M12 8v4l3 3"></path><path d="M19 5l2-2"></path></svg>
+                </span>
+                <div class="label-group">
+                  <span class="item-label">问这个视频</span>
+                </div>
+              </button>
             </div>
           </div>
         </div>
@@ -273,6 +286,10 @@
         </div>
       </div>
     </main>
+
+    <!-- RAG 聊天 -->
+    <ChatButton />
+    <ChatPanel :video-id="selectedMedia?.id" :video-title="selectedMedia?.filename" />
   </div>
 </template>
 
@@ -280,6 +297,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { marked } from 'marked'
 import SparkMD5 from 'spark-md5'
+import ChatButton from './components/ChatButton.vue'
+import ChatPanel from './components/ChatPanel.vue'
+import { useRagChat } from './composables/useRagChat.js'
 
 // --- 变量定义 ---
 const file = ref(null)
@@ -304,6 +324,8 @@ const tokenUsage = ref({ used: 0, dailyQuota: 50000, remaining: 50000 })
 const chunkProgress = ref(0)      // 分片上传进度百分比
 const md5Computing = ref(false)   // MD5 计算中
 const md5Progress = ref(0)        // MD5 计算进度
+const agentPreparedMediaIds = new Set()
+const { openPanel } = useRagChat()
 const tokenPercent = computed(() => {
   if (!tokenUsage.value.dailyQuota) return 0
   return Math.min(100, (tokenUsage.value.used / tokenUsage.value.dailyQuota) * 100)
@@ -859,6 +881,32 @@ const aiAnalyze = async (id) => {
   }
 }
 
+const askVideoAgent = async (id) => {
+  const item = list.value.find(i => i.id === id)
+  if (!item) return
+
+  selectedMedia.value = item
+  openPanel()
+  showMsg(`已进入视频问答模式：${item.filename || id}`)
+
+  if (agentPreparedMediaIds.has(id)) {
+    return
+  }
+
+  try {
+    const res = await fetch(`http://localhost:9090/api/rag/ingest/${id}`, { method: 'POST' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || data.error) {
+      showMsg(data.error || '视频问答索引准备失败，请先完成文字提取', true)
+      return
+    }
+    agentPreparedMediaIds.add(id)
+    showMsg('视频问答索引已准备完成')
+  } catch (e) {
+    showMsg('视频问答索引准备失败: ' + e.message, true)
+  }
+}
+
 const startPolling = (id, type) => {
   // 清理旧定时器
   if (pollingTimers.value[id]) clearInterval(pollingTimers.value[id].timer)
@@ -1214,7 +1262,7 @@ html, body, #app {
 .status-indicator.completed { color: var(--accent-lime); border: 1px solid var(--accent-lime); background: rgba(197, 249, 70, 0.1); }
 .status-indicator.processing { color: var(--accent-purple); border: 1px solid var(--accent-purple); animation: blink 1s infinite; }
 
-.action-dock { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 12px; padding: 12px; background: rgba(5, 8, 5, 0.5); }
+.action-dock { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 12px; background: rgba(5, 8, 5, 0.5); }
 .dock-item { position: relative; border: 1px solid var(--border-tech); background: var(--bg-card); border-radius: 8px; padding: 16px; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; transition: all 0.3s; color: var(--text-sub); font-family: monospace; overflow: hidden; }
 .dock-item:hover:not(:disabled) { color: var(--accent-lime); border-color: var(--accent-lime); background: rgba(197, 249, 70, 0.05); }
 .dock-item:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -1223,6 +1271,9 @@ html, body, #app {
 .dock-item.ai-core .item-sub { font-size: 0.75rem; color: var(--accent-purple); opacity: 0.8; }
 .dock-item.ai-core:hover:not(:disabled) { border-color: var(--accent-lime); color: var(--text-inverse); background: var(--accent-lime); }
 .dock-item.ai-core:hover:not(:disabled) .item-sub { color: var(--text-inverse); }
+.dock-item.agent-core { border-color: rgba(197, 249, 70, 0.55); color: var(--accent-lime); }
+.dock-item.agent-core .label-group { display: flex; flex-direction: column; align-items: flex-start; z-index: 1; }
+.dock-item.agent-core:hover:not(:disabled) { border-color: var(--accent-lime); color: var(--text-inverse); background: var(--accent-lime); }
 
 /* Sidebar */
 .sidebar-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 998; }
