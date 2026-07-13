@@ -10,6 +10,7 @@ import com.example.server.agent.model.MatchedVideoSegment;
 import com.example.server.agent.model.QuizResult;
 import com.example.server.agent.model.ToolCall;
 import com.example.server.agent.model.ToolResult;
+import com.example.server.agent.model.VideoSearchResult;
 import com.example.server.agent.model.VideoSegmentLocatorResult;
 import com.example.server.agent.model.VideoSummaryResult;
 import org.springframework.beans.factory.annotation.Value;
@@ -87,6 +88,7 @@ public class AgentOrchestrator {
             ToolResult result = toolExecutor.execute(call, state);
             steps.add(new AgentStep(call, result));
             eventSink.accept(new AgentEvent("tool_result", result));
+            emitContexts(result, eventSink);
 
             String directAnswer = answerFromToolResult(result);
             if (directAnswer != null) {
@@ -144,6 +146,23 @@ public class AgentOrchestrator {
             return formatLocatedSegments(locatorResult);
         }
         return null;
+    }
+
+    private void emitContexts(ToolResult result, Consumer<AgentEvent> eventSink) {
+        if (!result.success() || result.data() == null) {
+            return;
+        }
+        if (result.data() instanceof KnowledgeQaResult qaResult && !qaResult.contexts().isEmpty()) {
+            eventSink.accept(new AgentEvent("contexts", qaResult.contexts()));
+            return;
+        }
+        if (result.data() instanceof VideoSearchResult searchResult && !searchResult.segments().isEmpty()) {
+            eventSink.accept(new AgentEvent("contexts", searchResult.segments()));
+            return;
+        }
+        if (result.data() instanceof VideoSegmentLocatorResult locatorResult && !locatorResult.matchedSegments().isEmpty()) {
+            eventSink.accept(new AgentEvent("contexts", locatorResult.matchedSegments()));
+        }
     }
 
     private String formatLocatedSegments(VideoSegmentLocatorResult locatorResult) {

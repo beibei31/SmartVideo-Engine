@@ -147,11 +147,24 @@
                 <div class="filename-mask" :title="item.filename">{{ item.filename }}</div>
                 <div class="meta-tags">
                   <span class="time-tag">{{ formatTime(item.uploadTime) }}</span>
-                  <span class="status-indicator" :class="item.status.toLowerCase()">
-                    {{ item.status === 'COMPLETED' ? 'READY' : 'PROCESSING' }}
+                  <span class="status-indicator" :class="mediaStatusClass(item)">
+                    {{ mediaStatusLabel(item) }}
                   </span>
                 </div>
               </div>
+            </div>
+
+            <div class="stage-strip">
+              <span
+                  v-for="stage in mediaStages(item)"
+                  :key="stage.key"
+                  class="stage-chip"
+                  :class="stage.state"
+                  :title="stage.detail"
+              >
+                <span class="stage-dot"></span>
+                {{ stage.label }}
+              </span>
             </div>
 
             <div class="action-dock">
@@ -295,11 +308,11 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { marked } from 'marked'
 import SparkMD5 from 'spark-md5'
 import ChatButton from './components/ChatButton.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import { useRagChat } from './composables/useRagChat.js'
+import { renderSafeMarkdown } from './utils/markdown.js'
 
 // --- 变量定义 ---
 const file = ref(null)
@@ -325,6 +338,7 @@ const chunkProgress = ref(0)      // 分片上传进度百分比
 const md5Computing = ref(false)   // MD5 计算中
 const md5Progress = ref(0)        // MD5 计算进度
 const agentPreparedMediaIds = new Set()
+const ragBuildStatus = ref({})
 const { openPanel } = useRagChat()
 const tokenPercent = computed(() => {
   if (!tokenUsage.value.dailyQuota) return 0
@@ -333,6 +347,57 @@ const tokenPercent = computed(() => {
 const fmtNum = (n) => {
   if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
   return String(n)
+}
+
+const mediaStatus = (item) => String(item?.status || 'PROCESSING').toUpperCase()
+const mediaStatusClass = (item) => mediaStatus(item).toLowerCase()
+const mediaStatusLabel = (item) => mediaStatus(item) === 'COMPLETED' ? 'READY' : 'PROCESSING'
+
+const hasFinalSummary = (item) => {
+  const text = item?.aiSummary || ''
+  if (!text) return false
+  return !text.includes('任务已') && !text.includes('正在') && !isStageErrorText(text)
+}
+
+const isStageErrorText = (text) => {
+  const safeText = text || ''
+  return safeText.includes('失败') || safeText.includes('Error') || safeText.includes('超时') || safeText.includes('500')
+}
+
+const mediaStages = (item) => {
+  const id = item?.id
+  const polling = id != null ? pollingTimers.value[id] : null
+  const rag = id != null ? ragBuildStatus.value[id] : null
+  const ragReady = id != null && agentPreparedMediaIds.has(id)
+  const transcriptText = item?.transcriptText || ''
+  const summaryText = item?.aiSummary || ''
+
+  return [
+    {
+      key: 'upload',
+      label: '上传',
+      state: mediaStatus(item) === 'COMPLETED' ? 'done' : 'loading',
+      detail: mediaStatus(item) === 'COMPLETED' ? '视频文件已入库' : '等待后端处理完成'
+    },
+    {
+      key: 'asr',
+      label: 'ASR',
+      state: transcriptText ? 'done' : polling?.type === 'text' ? 'loading' : 'pending',
+      detail: transcriptText ? '语音识别文本已生成' : polling?.type === 'text' ? '正在识别语音流' : '尚未提取文字'
+    },
+    {
+      key: 'summary',
+      label: '摘要',
+      state: hasFinalSummary(item) ? 'done' : polling?.type === 'ai' ? 'loading' : isStageErrorText(summaryText) ? 'failed' : 'pending',
+      detail: hasFinalSummary(item) ? 'AI 摘要已生成' : polling?.type === 'ai' ? '摘要任务处理中' : isStageErrorText(summaryText) ? '摘要任务失败，可重试' : '尚未生成摘要'
+    },
+    {
+      key: 'rag',
+      label: 'RAG',
+      state: ragReady ? 'done' : rag?.state || 'pending',
+      detail: ragReady ? '视频问答索引已准备完成' : rag?.message || '点击“问这个视频”构建知识库'
+    }
+  ]
 }
 const fetchTokenUsage = async () => {
   if (!currentUser.value) return
@@ -348,7 +413,7 @@ const renderedMarkdown = computed(() => {
   let cleanText = sidebar.value.content.replace(/<think>[\s\S]*?<\/think>/gi, "")
   if (cleanText.includes("</think>")) cleanText = cleanText.split("</think>").pop()
   if (!cleanText.trim()) cleanText = sidebar.value.content
-  return marked.parse(cleanText)
+  return renderSafeMarkdown(cleanText)
 })
 
 const timelineItems = computed(() => parseTimeline(sidebar.value.content))
@@ -890,20 +955,27 @@ const askVideoAgent = async (id) => {
   showMsg(`已进入视频问答模式：${item.filename || id}`)
 
   if (agentPreparedMediaIds.has(id)) {
+    ragBuildStatus.value[id] = { state: 'done', message: '视频问答索引已准备完成' }
     return
   }
 
+  ragBuildStatus.value[id] = { state: 'loading', message: '正在切分文本并写入向量知识库' }
   try {
     const res = await fetch(`http://localhost:9090/api/rag/ingest/${id}`, { method: 'POST' })
     const data = await res.json().catch(() => ({}))
     if (!res.ok || data.error) {
-      showMsg(data.error || '视频问答索引准备失败，请先完成文字提取', true)
+      const errorMessage = data.error || '视频问答索引准备失败，请先完成文字提取'
+      ragBuildStatus.value[id] = { state: 'failed', message: errorMessage }
+      showMsg(errorMessage, true)
       return
     }
     agentPreparedMediaIds.add(id)
+    ragBuildStatus.value[id] = { state: 'done', message: '视频问答索引已准备完成' }
     showMsg('视频问答索引已准备完成')
   } catch (e) {
-    showMsg('视频问答索引准备失败: ' + e.message, true)
+    const errorMessage = '视频问答索引准备失败: ' + e.message
+    ragBuildStatus.value[id] = { state: 'failed', message: errorMessage }
+    showMsg(errorMessage, true)
   }
 }
 
@@ -1261,6 +1333,54 @@ html, body, #app {
 .status-indicator { font-weight: 600; padding: 2px 8px; border-radius: 4px; }
 .status-indicator.completed { color: var(--accent-lime); border: 1px solid var(--accent-lime); background: rgba(197, 249, 70, 0.1); }
 .status-indicator.processing { color: var(--accent-purple); border: 1px solid var(--accent-purple); animation: blink 1s infinite; }
+
+.stage-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-tech);
+  background: rgba(0, 0, 0, 0.18);
+}
+.stage-chip {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  border: 1px solid var(--border-tech);
+  border-radius: 4px;
+  color: var(--text-sub);
+  font-family: monospace;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.stage-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.stage-chip.done {
+  color: var(--accent-lime);
+  border-color: rgba(197, 249, 70, 0.45);
+  background: rgba(197, 249, 70, 0.07);
+}
+.stage-chip.loading {
+  color: #f0c040;
+  border-color: rgba(240, 192, 64, 0.45);
+  background: rgba(240, 192, 64, 0.07);
+}
+.stage-chip.loading .stage-dot {
+  animation: pulse-lime 1.2s infinite alternate;
+}
+.stage-chip.failed {
+  color: #e94560;
+  border-color: rgba(233, 69, 96, 0.5);
+  background: rgba(233, 69, 96, 0.08);
+}
 
 .action-dock { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 12px; background: rgba(5, 8, 5, 0.5); }
 .dock-item { position: relative; border: 1px solid var(--border-tech); background: var(--bg-card); border-radius: 8px; padding: 16px; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; transition: all 0.3s; color: var(--text-sub); font-family: monospace; overflow: hidden; }

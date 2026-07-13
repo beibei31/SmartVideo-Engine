@@ -73,6 +73,29 @@ class ChatMemoryServiceTest {
         );
     }
 
+    @Test
+    void usesAtLeastOneDayTtlWhenConfiguredTtlIsTooSmall() {
+        ChatMemoryService service = new ChatMemoryService(
+                redisTemplate,
+                chatLanguageModel,
+                12,
+                16,
+                0,
+                true
+        );
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("chat:memory:s1")).thenReturn(null);
+
+        service.save("s1", "question", "answer");
+
+        verify(valueOperations).set(
+                eq("chat:memory:s1"),
+                org.mockito.ArgumentMatchers.anyString(),
+                eq(1L),
+                eq(TimeUnit.DAYS)
+        );
+    }
+
     private JSONArray messages(int count) {
         JSONArray messages = new JSONArray();
         for (int i = 0; i < count; i++) {

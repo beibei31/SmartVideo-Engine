@@ -36,7 +36,7 @@ public class ChatMemoryService {
         this.chatLanguageModel = chatLanguageModel;
         this.maxMessages = Math.max(4, maxMessages);
         this.summaryTriggerMessages = Math.max(this.maxMessages, summaryTriggerMessages);
-        this.ttlDays = ttlDays;
+        this.ttlDays = Math.max(1L, ttlDays);
         this.summaryEnabled = summaryEnabled;
     }
 

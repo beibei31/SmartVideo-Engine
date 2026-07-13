@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -75,6 +76,75 @@ class ToolExecutorTest {
 
         assertFalse(result.success());
         assertEquals("DeleteEverythingTool", result.toolName());
+    }
+
+    @Test
+    void returnsClearFailureWhenToolArgumentsAreMissing() {
+        ToolExecutor executor = new ToolExecutor(
+                mock(VideoSearchTool.class),
+                mock(KnowledgeQaTool.class),
+                mock(VideoSegmentLocatorTool.class),
+                mock(VideoSummaryTool.class),
+                mock(QuizTool.class)
+        );
+
+        ToolResult result = executor.execute(new ToolCall(
+                "bad args",
+                "VideoSearchTool",
+                null
+        ), AgentState.builder().build());
+
+        assertFalse(result.success());
+        assertEquals("VideoSearchTool", result.toolName());
+        assertEquals("Invalid tool arguments: arguments must not be null", result.error());
+    }
+
+    @Test
+    void returnsClearFailureWhenNumericArgumentIsInvalid() {
+        ToolExecutor executor = new ToolExecutor(
+                mock(VideoSearchTool.class),
+                mock(KnowledgeQaTool.class),
+                mock(VideoSegmentLocatorTool.class),
+                mock(VideoSummaryTool.class),
+                mock(QuizTool.class)
+        );
+
+        ToolResult result = executor.execute(new ToolCall(
+                "bad topK",
+                "VideoSearchTool",
+                Map.of("query", "Redis", "topK", "many")
+        ), AgentState.builder().build());
+
+        assertFalse(result.success());
+        assertEquals("VideoSearchTool", result.toolName());
+        assertEquals("Invalid tool arguments: topK must be a number", result.error());
+    }
+
+    @Test
+    void returnsTimeoutFailureWhenToolDoesNotCompleteInTime() {
+        VideoSearchTool videoSearchTool = mock(VideoSearchTool.class);
+        when(videoSearchTool.name()).thenReturn("VideoSearchTool");
+        Executor neverRuns = command -> {
+        };
+        ToolExecutor executor = new ToolExecutor(
+                videoSearchTool,
+                mock(KnowledgeQaTool.class),
+                mock(VideoSegmentLocatorTool.class),
+                mock(VideoSummaryTool.class),
+                mock(QuizTool.class),
+                1,
+                neverRuns
+        );
+
+        ToolResult result = executor.execute(new ToolCall(
+                "slow",
+                "VideoSearchTool",
+                Map.of("query", "Redis")
+        ), AgentState.builder().build());
+
+        assertFalse(result.success());
+        assertEquals("VideoSearchTool", result.toolName());
+        assertEquals("Tool execution timed out after 1ms", result.error());
     }
 
     @Test

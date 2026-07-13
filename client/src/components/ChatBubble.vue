@@ -66,8 +66,8 @@
 
 <script setup>
 import { computed } from 'vue'
-import { marked } from 'marked'
 import ChatContexts from './ChatContexts.vue'
+import { renderSafeMarkdown } from '../utils/markdown.js'
 
 const props = defineProps({
   message: {
@@ -82,7 +82,7 @@ defineEmits(['retry'])
 
 const renderedContent = computed(() => {
   if (!props.message.content) return ''
-  return marked.parse(props.message.content)
+  return renderSafeMarkdown(props.message.content)
 })
 
 function formatTime(ts) {

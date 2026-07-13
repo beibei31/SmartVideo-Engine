@@ -10,16 +10,21 @@
 
     <div v-if="expanded" class="contexts-list">
       <div
-        v-for="ctx in contexts"
-        :key="ctx.index"
+        v-for="(ctx, idx) in contexts"
+        :key="contextKey(ctx, idx)"
         class="context-item"
       >
         <div class="ctx-header">
-          <span class="ctx-index">[{{ ctx.index }}]</span>
+          <span class="ctx-index">[{{ ctx.index || idx + 1 }}]</span>
           <span class="ctx-source">{{ truncate(ctx.sourceTitle, 60) }}</span>
           <span class="ctx-score" :class="scoreClass(ctx.score)">
             {{ (ctx.score || 0).toFixed(3) }}
           </span>
+        </div>
+        <div class="ctx-detail-row">
+          <span v-if="formatRange(ctx)">时间 {{ formatRange(ctx) }}</span>
+          <span v-if="ctx.chunkId">片段 {{ ctx.chunkId }}</span>
+          <span v-if="ctx.retrievalType">来源 {{ ctx.retrievalType }}</span>
         </div>
         <div class="ctx-bar-track">
           <div class="ctx-bar-fill" :class="scoreClass(ctx.score)"
@@ -61,6 +66,24 @@ const isFullMap = reactive({})
 function truncate(str, maxLen) {
   if (!str) return ''
   return str.length > maxLen ? str.slice(0, maxLen) + '...' : str
+}
+
+function contextKey(ctx, idx) {
+  return ctx.chunkId || `${ctx.sourceTitle || 'source'}-${ctx.index || idx}`
+}
+
+function formatRange(ctx) {
+  if (!Number.isFinite(ctx.startTime)) return ''
+  const start = formatSeconds(ctx.startTime)
+  const end = Number.isFinite(ctx.endTime) ? formatSeconds(ctx.endTime) : ''
+  return end ? `${start}-${end}` : start
+}
+
+function formatSeconds(seconds) {
+  const safeSeconds = Math.max(0, Number.parseInt(seconds, 10) || 0)
+  const minutes = Math.floor(safeSeconds / 60)
+  const rest = safeSeconds % 60
+  return `${minutes}:${String(rest).padStart(2, '0')}`
 }
 
 function scoreClass(score) {
@@ -116,6 +139,23 @@ function scoreClass(score) {
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
+}
+
+.ctx-detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -1px 0 6px;
+  color: var(--text-sub, #71757a);
+  font-family: monospace;
+  font-size: 0.68rem;
+}
+
+.ctx-detail-row span {
+  border: 1px solid rgba(197, 249, 70, 0.18);
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: rgba(197, 249, 70, 0.04);
 }
 
 .ctx-index {

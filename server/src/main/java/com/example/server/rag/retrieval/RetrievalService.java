@@ -81,7 +81,7 @@ public class RetrievalService {
                 shorten(request.question()), shorten(rewrittenQuery), request.hybrid());
 
         Integer currentVersion = resolveCurrentVersion(request.videoId());
-        List<SearchResult> denseResults = denseSearch(rewrittenQuery, request.videoId(), currentVersion);
+        List<SearchResult> denseResults = denseSearch(rewrittenQuery, request.videoId(), currentVersion, request.hybrid());
         List<SearchResult> candidates;
         if (request.hybrid()) {
             List<SearchResult> sparseResults = sparseSearch(rewrittenQuery);
@@ -99,43 +99,51 @@ public class RetrievalService {
         return finalResults;
     }
 
-    private List<SearchResult> denseSearch(String query, Long videoId, Integer currentVersion) {
-        float[] queryVector = embeddingService.embed(query);
-        EmbeddingSearchRequest.EmbeddingSearchRequestBuilder builder = EmbeddingSearchRequest.builder()
-                .queryEmbedding(Embedding.from(queryVector))
-                .maxResults(DENSE_TOP_K)
-                .minScore(similarityThreshold);
+    private List<SearchResult> denseSearch(String query, Long videoId, Integer currentVersion, boolean allowFallback) {
+        try {
+            float[] queryVector = embeddingService.embed(query);
+            EmbeddingSearchRequest.EmbeddingSearchRequestBuilder builder = EmbeddingSearchRequest.builder()
+                    .queryEmbedding(Embedding.from(queryVector))
+                    .maxResults(DENSE_TOP_K)
+                    .minScore(similarityThreshold);
 
-        Filter filter = buildMilvusFilter(videoId, currentVersion);
-        if (filter != null) {
-            builder.filter(filter);
-        }
-
-        EmbeddingSearchRequest request = builder.build();
-
-        List<EmbeddingMatch<TextSegment>> matches = milvusEmbeddingStore.search(request).matches();
-        List<SearchResult> results = new ArrayList<>();
-        for (EmbeddingMatch<TextSegment> match : matches) {
-            TextSegment segment = match.embedded();
-            String chunkId = segment.metadata() != null ? segment.metadata().getString("chunkId") : null;
-            SearchResult result = SearchResult.builder()
-                    .chunkId(chunkId != null && !chunkId.isBlank() ? chunkId : match.embeddingId())
-                    .content(segment.text())
-                    .score(match.score())
-                    .retrievalType("DENSE")
-                    .build();
-
-            if (segment.metadata() != null) {
-                result.setSourceTitle(segment.metadata().getString("sourceTitle"));
-                String chunkIndex = segment.metadata().getString("chunkIndex");
-                if (chunkIndex != null && !chunkIndex.isBlank()) {
-                    result.setChunkIndex(Integer.parseInt(chunkIndex));
-                }
-                result.setMetadata(segment.metadata().toMap());
+            Filter filter = buildMilvusFilter(videoId, currentVersion);
+            if (filter != null) {
+                builder.filter(filter);
             }
-            results.add(result);
+
+            EmbeddingSearchRequest request = builder.build();
+
+            List<EmbeddingMatch<TextSegment>> matches = milvusEmbeddingStore.search(request).matches();
+            List<SearchResult> results = new ArrayList<>();
+            for (EmbeddingMatch<TextSegment> match : matches) {
+                TextSegment segment = match.embedded();
+                String chunkId = segment.metadata() != null ? segment.metadata().getString("chunkId") : null;
+                SearchResult result = SearchResult.builder()
+                        .chunkId(chunkId != null && !chunkId.isBlank() ? chunkId : match.embeddingId())
+                        .content(segment.text())
+                        .score(match.score())
+                        .retrievalType("DENSE")
+                        .build();
+
+                if (segment.metadata() != null) {
+                    result.setSourceTitle(segment.metadata().getString("sourceTitle"));
+                    String chunkIndex = segment.metadata().getString("chunkIndex");
+                    if (chunkIndex != null && !chunkIndex.isBlank()) {
+                        result.setChunkIndex(Integer.parseInt(chunkIndex));
+                    }
+                    result.setMetadata(segment.metadata().toMap());
+                }
+                results.add(result);
+            }
+            return results;
+        } catch (RuntimeException e) {
+            if (!allowFallback) {
+                throw e;
+            }
+            log.warn("Dense retrieval failed; falling back to BM25 candidates: {}", e.getMessage());
+            return List.of();
         }
-        return results;
     }
 
     private List<SearchResult> sparseSearch(String query) {

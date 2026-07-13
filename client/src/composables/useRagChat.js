@@ -12,7 +12,6 @@
 import { ref, readonly } from 'vue'
 import {
   streamChat,
-  syncChat,
   clearMemory as clearServerMemory,
   generateSessionId
 } from '../api/rag.js'
@@ -106,6 +105,7 @@ function sendMessage(text, options = {}) {
     onToolResult(result) {
       const toolName = typeof result === 'object' ? result.toolName : ''
       statusText.value = toolName ? `${toolLabel(toolName)}完成` : '工具执行完成'
+      appendContexts(extractToolContexts(result))
     },
     onFinalAnswer(answer) {
       const last = messages.value[messages.value.length - 1]
@@ -115,10 +115,7 @@ function sendMessage(text, options = {}) {
     },
     onContexts(ctxs) {
       // 更新最后一条 AI 消息的 contexts
-      const last = messages.value[messages.value.length - 1]
-      if (last && last.role === 'assistant') {
-        last.contexts = ctxs
-      }
+      appendContexts(ctxs)
     },
     onToken(token) {
       const last = messages.value[messages.value.length - 1]
@@ -166,6 +163,48 @@ function toolLabel(name) {
     KnowledgeQaTool: '进行知识问答'
   }
   return labels[name] || name || '执行工具'
+}
+
+function appendContexts(ctxs) {
+  const normalized = normalizeContexts(ctxs)
+  if (normalized.length === 0) return
+  const last = messages.value[messages.value.length - 1]
+  if (last && last.role === 'assistant') {
+    last.contexts = normalized
+  }
+}
+
+function extractToolContexts(result) {
+  if (!result || typeof result !== 'object') return []
+  const data = result.data
+  if (!data || typeof data !== 'object') return []
+  if (Array.isArray(data.contexts)) return data.contexts
+  if (Array.isArray(data.segments)) return data.segments
+  if (Array.isArray(data.matchedSegments)) return data.matchedSegments
+  return []
+}
+
+function normalizeContexts(ctxs) {
+  if (!Array.isArray(ctxs)) return []
+  return ctxs.map((ctx, index) => {
+    const metadata = ctx?.metadata && typeof ctx.metadata === 'object' ? ctx.metadata : {}
+    const startTime = firstDefined(ctx?.startTime, metadata.startTime, metadata.start_time)
+    const endTime = firstDefined(ctx?.endTime, metadata.endTime, metadata.end_time)
+    return {
+      index: firstDefined(ctx?.index, ctx?.chunkIndex, index + 1),
+      chunkId: ctx?.chunkId || metadata.chunkId || '',
+      content: ctx?.content || ctx?.text || ctx?.reason || '',
+      score: Number(ctx?.score || 0),
+      sourceTitle: ctx?.sourceTitle || metadata.sourceTitle || metadata.filename || '未知来源',
+      retrievalType: ctx?.retrievalType || metadata.retrievalType || '',
+      startTime: Number.isFinite(Number(startTime)) ? Number(startTime) : null,
+      endTime: Number.isFinite(Number(endTime)) ? Number(endTime) : null
+    }
+  }).filter(ctx => ctx.content || ctx.sourceTitle)
+}
+
+function firstDefined(...values) {
+  return values.find(value => value !== undefined && value !== null && value !== '')
 }
 
 /**
